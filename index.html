@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus — Your Evolution Hub</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <nav id="sidebar">
+    <div class="logo">
+      <span class="logo-icon">&#9670;</span>
+      <span class="logo-text">Nexus</span>
+    </div>
+    <ul id="nav-links">
+      <li data-view="dashboard" class="active">
+        <span class="nav-icon">&#9633;</span> Dashboard
+      </li>
+      <li data-view="today">
+        <span class="nav-icon">&#9788;</span> Today
+      </li>
+      <li data-view="capture">
+        <span class="nav-icon">&#9889;</span> Capture
+      </li>
+      <li data-view="tasks">
+        <span class="nav-icon">&#10003;</span> Tasks
+      </li>
+      <li data-view="journal">
+        <span class="nav-icon">&#9998;</span> Journal
+      </li>
+      <li data-view="goals">
+        <span class="nav-icon">&#9650;</span> Goals
+      </li>
+      <li data-view="vault">
+        <span class="nav-icon">&#128218;</span> Vault
+      </li>
+      <li data-view="growth">
+        <span class="nav-icon">&#128200;</span> Growth
+      </li>
+      <li data-view="strategy" class="nav-strategy">
+        <span class="nav-icon">&#127919;</span> Strategy
+      </li>
+      <li data-view="shortcuts">
+        <span class="nav-icon">&#63;</span> Shortcuts
+      </li>
+    </ul>
+    <div class="sidebar-footer">
+      <button id="theme-toggle" title="Toggle light/dark theme" onclick="App.toggleTheme()">&#9788;</button>
+      <button id="export-btn" title="Export all data">Export</button>
+      <button id="import-btn" title="Import data">Import</button>
+      <input type="file" id="import-file" accept=".json" hidden>
+    </div>
+  </nav>
+
+  <main id="content">
+    <!-- Views injected by JS -->
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

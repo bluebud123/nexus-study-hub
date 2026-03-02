@@ -1,0 +1,3312 @@
+// ═══════════════════════════════════════════════════
+//  Nexus — Personal Evolution Hub
+//  Data lives in nexus-data.json (server-side).
+// ═══════════════════════════════════════════════════
+
+// ── Data Layer ──────────────────────────────────────
+const Store = {
+  _data: null,       // In-memory cache (loaded from server on init)
+  _saving: false,    // Prevent concurrent saves
+  _dirty: false,     // Needs save after current save finishes
+
+  _defaults() {
+    return {
+      captures: [],
+      tasks: [],
+      journal: [],
+      goals: [],
+      streak: { lastDate: null, count: 0 },
+      strategy: {
+        milestones: DEFAULT_MILESTONES,
+        allocations: DEFAULT_ALLOC,
+        notes: {},
+        examDate: '2026-11-01',
+        schedule: [...WEEKLY_TEMPLATE],
+      },
+      timer: { sessions: [] },
+      habits: { definitions: [], log: {} },
+      mcqScores: [],
+      topics: [],
+      theme: 'dark',
+      autoWeeklyExport: true,
+      lastWeeklyExport: null,
+      weeklyReviewTags: ['lesson', 'people', 'food'],
+    };
+  },
+
+  _merge(saved) {
+    const defaults = this._defaults();
+    const merged = { ...defaults, ...saved };
+    merged.strategy = { ...defaults.strategy, ...(saved.strategy || {}) };
+    merged.timer = { ...defaults.timer, ...(saved.timer || {}) };
+    merged.habits = { ...defaults.habits, ...(saved.habits || {}) };
+    return merged;
+  },
+
+  // Called once on app startup — loads from server
+  async init() {
+    try {
+      const res = await fetch('/api/nexus-data');
+      const saved = await res.json();
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+        this._data = this._merge(saved);
+      } else {
+        // Also try migrating from localStorage (one-time)
+        const local = localStorage.getItem('nexus_data');
+        if (local) {
+          this._data = this._merge(JSON.parse(local));
+          await this._saveToServer();
+          localStorage.removeItem('nexus_data');  // Clean up after migration
+        } else {
+          this._data = this._defaults();
+        }
+      }
+    } catch {
+      // Offline fallback
+      this._data = this._defaults();
+    }
+  },
+
+  async _saveToServer() {
+    if (this._saving) { this._dirty = true; return; }
+    this._saving = true;
+    try {
+      await fetch('/api/nexus-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this._data)
+      });
+    } catch { /* silent */ }
+    this._saving = false;
+    if (this._dirty) { this._dirty = false; this._saveToServer(); }
+  },
+
+  // Sync API — works from in-memory cache
+  get() { return this._data || this._defaults(); },
+
+  update(fn) {
+    if (!this._data) this._data = this._defaults();
+    fn(this._data);
+    this._saveToServer();  // Fire-and-forget save to server
+    return this._data;
+  },
+
+  exportJSON() {
+    const blob = new Blob([JSON.stringify(this.get(), null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nexus-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  importJSON(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        this._data = this._merge(data);
+        this._saveToServer();
+        App.render();
+      } catch {
+        alert('Invalid file format.');
+      }
+    };
+    reader.readAsText(file);
+  }
+};
+
+// ── Utility ────────────────────────────────────────
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function timeAgo(ts) {
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+function formatDate(ts) {
+  return new Date(ts).toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+  });
+}
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function escapeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ── Strategy Constants ─────────────────────────────
+const STRATEGY_MONTHS = [
+  { key: 'feb', label: 'Feb' }, { key: 'mar', label: 'Mar' },
+  { key: 'apr', label: 'Apr' }, { key: 'may', label: 'May' },
+  { key: 'jun', label: 'Jun' }, { key: 'jul', label: 'Jul' },
+  { key: 'aug', label: 'Aug' }, { key: 'sep', label: 'Sep' },
+  { key: 'oct', label: 'Oct' }, { key: 'nov', label: 'Nov' },
+];
+
+const STREAMS = {
+  exam:       { name: "Master's Exam",  icon: "\u{1F4D6}", color: '#E8453C' },
+  manuscript: { name: 'CSS-25-705',     icon: "\u{1F4DD}", color: '#2E86DE' },
+  scoliox:    { name: 'Scoliox Dev',    icon: "\u{1F916}", color: '#10AC84' },
+};
+
+const DEFAULT_ALLOC = {
+  feb: { exam: 55, manuscript: 30, scoliox: 15 },
+  mar: { exam: 55, manuscript: 25, scoliox: 20 },
+  apr: { exam: 60, manuscript: 15, scoliox: 25 },
+  may: { exam: 65, manuscript: 10, scoliox: 25 },
+  jun: { exam: 70, manuscript: 5,  scoliox: 25 },
+  jul: { exam: 85, manuscript: 5,  scoliox: 10 },
+  aug: { exam: 90, manuscript: 5,  scoliox: 5 },
+  sep: { exam: 95, manuscript: 0,  scoliox: 5 },
+  oct: { exam: 100, manuscript: 0, scoliox: 0 },
+  nov: { exam: 100, manuscript: 0, scoliox: 0 },
+};
+
+const DEFAULT_MILESTONES = {
+  feb: [
+    { id: 'f1', stream: 'manuscript', text: 'Submit point-by-point reviewer response + revised manuscript to CSS', priority: 'critical', done: false },
+    { id: 'f2', stream: 'exam', text: 'Complete Upper Limb + Spine modules (300 MCQs)', priority: 'high', done: false },
+    { id: 'f3', stream: 'scoliox', text: 'Complete dual X-ray upload (UIV) deployment', priority: 'medium', done: false },
+  ],
+  mar: [
+    { id: 'm1', stream: 'exam', text: 'Lower Limb Part 1: Hip, Pelvis, Knee (400 MCQs)', priority: 'high', done: false },
+    { id: 'm2', stream: 'manuscript', text: 'Address any second-round reviewer comments', priority: 'medium', done: false },
+    { id: 'm3', stream: 'scoliox', text: 'UIV paper draft ready for co-authors', priority: 'medium', done: false },
+  ],
+  apr: [
+    { id: 'a1', stream: 'exam', text: 'Lower Limb Part 2 + Trauma principles (400 MCQs)', priority: 'high', done: false },
+    { id: 'a2', stream: 'exam', text: 'First mock exam attempt \u2014 target >65%', priority: 'high', done: false },
+    { id: 'a3', stream: 'scoliox', text: 'Submit UIV paper to target journal', priority: 'medium', done: false },
+  ],
+  may: [
+    { id: 'y1', stream: 'exam', text: 'Paediatrics, Tumors, Infections, Sports (500 MCQs)', priority: 'high', done: false },
+    { id: 'y2', stream: 'manuscript', text: 'CSS-25-705 expected acceptance / proofs', priority: 'low', done: false },
+    { id: 'y3', stream: 'scoliox', text: 'Multi-centre validation data collection begins', priority: 'low', done: false },
+  ],
+  jun: [
+    { id: 'j1', stream: 'exam', text: 'Arthroplasty deep dive + Revision surgery (500 MCQs)', priority: 'critical', done: false },
+    { id: 'j2', stream: 'scoliox', text: 'Feature freeze \u2014 maintenance only after this', priority: 'critical', done: false },
+    { id: 'j3', stream: 'exam', text: 'Second mock exam \u2014 target >75%', priority: 'high', done: false },
+  ],
+  jul: [
+    { id: 'l1', stream: 'exam', text: 'Question-intensive month: 800 MCQs + weak area review', priority: 'critical', done: false },
+    { id: 'l2', stream: 'exam', text: 'Begin weekly viva practice sessions', priority: 'high', done: false },
+  ],
+  aug: [
+    { id: 'g1', stream: 'exam', text: '1000 MCQs + Mock exams every 2 weeks \u2014 target >80%', priority: 'critical', done: false },
+    { id: 'g2', stream: 'exam', text: 'Daily viva practice with study group', priority: 'critical', done: false },
+  ],
+  sep: [
+    { id: 's1', stream: 'exam', text: '1000 MCQs + Clinical scenario marathon', priority: 'critical', done: false },
+    { id: 's2', stream: 'exam', text: 'Full-day mock exam under timed conditions', priority: 'critical', done: false },
+  ],
+  oct: [
+    { id: 'o1', stream: 'exam', text: 'Final rapid revision \u2014 consolidation only', priority: 'critical', done: false },
+    { id: 'o2', stream: 'exam', text: 'Confidence building: review strengths, light practice', priority: 'high', done: false },
+  ],
+  nov: [
+    { id: 'n1', stream: 'exam', text: 'EXAM MONTH \u2014 execute with confidence', priority: 'critical', done: false },
+  ],
+};
+
+const DECISION_RULES = [
+  { trigger: 'Manuscript deadline approaching', action: 'Prioritize manuscript until submitted', icon: '\u26A1' },
+  { trigger: 'Mock exam score < 70% by August', action: 'Cut Scoliox to 0%, manuscript to 0%', icon: '\u{1F6A8}' },
+  { trigger: 'Falling behind MCQ targets 2 months running', action: 'Reassess all non-exam commitments', icon: '\u26A0\uFE0F' },
+  { trigger: 'Burnout symptoms detected', action: 'Full week off from Scoliox + manuscript', icon: '\u{1F6D1}' },
+  { trigger: 'When in doubt about what to work on', action: 'Always default to exam prep', icon: '\u{1F9ED}' },
+];
+
+const WEEKLY_TEMPLATE = [
+  { time: '6:00 AM', activity: 'Review flashcards / quick MCQs (30 min)', stream: 'exam' },
+  { time: '7:00 AM', activity: 'Clinical duties at NOCERAL', stream: null },
+  { time: '5:00 PM', activity: 'Focused study block (2-3 hrs)', stream: 'exam' },
+  { time: '8:00 PM', activity: 'Secondary stream work (1-1.5 hrs)', stream: 'flex' },
+  { time: '9:30 PM', activity: 'Light review / next day planning', stream: 'exam' },
+];
+
+// ── Vault API Client ──────────────────────────────
+const VaultAPI = {
+  async listFiles(p = '') {
+    const res = await fetch(`/api/vault/files?path=${encodeURIComponent(p)}`);
+    return res.json();
+  },
+  async readFile(p) {
+    const res = await fetch(`/api/vault/file?path=${encodeURIComponent(p)}`);
+    return res.json();
+  },
+  async saveFile(p, content) {
+    const res = await fetch('/api/vault/file', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: p, content })
+    });
+    return res.json();
+  },
+  async createFile(p, content = '') {
+    const res = await fetch('/api/vault/file', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: p, content })
+    });
+    return res.json();
+  },
+  async search(q) {
+    const res = await fetch(`/api/vault/search?q=${encodeURIComponent(q)}`);
+    return res.json();
+  },
+  async getTags() {
+    const res = await fetch('/api/vault/tags');
+    return res.json();
+  },
+  async getStats() {
+    const res = await fetch('/api/vault/stats');
+    return res.json();
+  },
+  async getDaily(date) {
+    const url = date ? `/api/vault/daily?date=${date}` : '/api/vault/daily';
+    const res = await fetch(url);
+    return res.json();
+  },
+  async addDaily(text) {
+    const res = await fetch('/api/vault/daily', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    return res.json();
+  },
+  async addCapture(text) {
+    const res = await fetch('/api/vault/capture', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    return res.json();
+  },
+  async getGrowth() {
+    const res = await fetch('/api/vault/growth');
+    return res.json();
+  },
+  async getSuggestions() {
+    const res = await fetch('/api/vault/suggestions');
+    return res.json();
+  },
+  async getTasks() {
+    const res = await fetch('/api/vault/tasks');
+    return res.json();
+  },
+  async toggleTask(source, line) {
+    const res = await fetch('/api/vault/tasks/toggle', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source, line })
+    });
+    return res.json();
+  },
+  async getTagEntries(tag) {
+    const res = await fetch(`/api/vault/tag-entries?tag=${encodeURIComponent(tag)}`);
+    return res.json();
+  },
+  async getWeeklyReview() {
+    const res = await fetch('/api/vault/weekly-review');
+    return res.json();
+  },
+};
+
+// ── Markdown Rendering ────────────────────────────
+function preprocessObsidian(md) {
+  // Dataviewjs & tasks blocks -> styled info blocks
+  md = md.replace(/```dataviewjs[\s\S]*?```/g, '<div class="vault-info-block">Dataview query — view in Obsidian</div>');
+  md = md.replace(/```tasks[\s\S]*?```/g, '<div class="vault-info-block">Tasks query — view in Obsidian</div>');
+  // Block references: strip ^blockid
+  md = md.replace(/\s+\^[a-zA-Z0-9]+$/gm, '');
+  // Transclusions
+  md = md.replace(/!\[\[([^\]]+)\]\]/g, '<div class="vault-info-block">Embedded: $1</div>');
+  // Wikilinks with alias: [[path|display]]
+  md = md.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '<a class="wikilink" onclick="App.openVaultFile(\'$1\')">$2</a>');
+  // Wikilinks with section: [[path#section]]
+  md = md.replace(/\[\[([^\]#]+)#([^\]]+)\]\]/g, '<a class="wikilink" onclick="App.openVaultFile(\'$1\')">$1 &rsaquo; $2</a>');
+  // Basic wikilinks: [[path]]
+  md = md.replace(/\[\[([^\]]+)\]\]/g, '<a class="wikilink" onclick="App.openVaultFile(\'$1\')">$1</a>');
+  // Hashtags -> clickable pills (not inside code or links)
+  md = md.replace(/(^|\s)#([a-zA-Z]\w*)/gm, '$1<span class="vault-tag" onclick="App.vaultSearchByTag(\'$2\')">#$2</span>');
+  // Strikethrough
+  md = md.replace(/~~(.*?)~~/g, '<del>$1</del>');
+  // Obsidian checkboxes: - [-] cancelled
+  md = md.replace(/^(\s*)- \[-\]\s+(.*)/gm, '$1<li class="task-cancelled"><input type="checkbox" disabled> <del>$2</del></li>');
+  return md;
+}
+
+function renderMarkdown(raw) {
+  const preprocessed = preprocessObsidian(raw);
+  if (typeof marked !== 'undefined') {
+    return marked.parse(preprocessed);
+  }
+  // Fallback: basic rendering
+  return '<pre>' + escapeHTML(raw) + '</pre>';
+}
+
+// ── Streak Tracker ─────────────────────────────────
+function updateStreak() {
+  Store.update(data => {
+    const today = todayKey();
+    if (data.streak.lastDate === today) return;
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = yesterday.toISOString().slice(0, 10);
+
+    if (data.streak.lastDate === yesterdayKey) {
+      data.streak.count++;
+    } else if (data.streak.lastDate !== today) {
+      data.streak.count = 1;
+    }
+    data.streak.lastDate = today;
+  });
+}
+
+// ── Views ──────────────────────────────────────────
+
+const Views = {
+
+  // ─── Dashboard ───────────────────────────────
+  dashboard() {
+    const data = Store.get();
+    const openTasks = data.tasks.filter(t => !t.done).length;
+    const doneTasks = data.tasks.filter(t => t.done).length;
+    const totalCaptures = data.captures.length;
+    const journalEntries = data.journal.length;
+    const activeGoals = data.goals.length;
+
+    const recentCaptures = data.captures.slice(-3).reverse();
+    const recentTasks = data.tasks.filter(t => !t.done).slice(-5).reverse();
+
+    // Strategy summary
+    const strat = data.strategy;
+    const allMs = Object.values(strat.milestones).flat();
+    const stratTotal = allMs.length;
+    const stratDone = allMs.filter(m => m.done).length;
+    const stratPct = stratTotal ? Math.round((stratDone / stratTotal) * 100) : 0;
+    const examDate = new Date(strat.examDate || '2026-11-01');
+    const daysLeft = Math.max(0, Math.ceil((examDate - new Date()) / 864e5));
+
+    return `
+      <h1 class="view-title">Dashboard</h1>
+      <p class="view-subtitle">Your personal command center</p>
+
+      ${data.streak.count > 0 ? `
+        <div class="streak-display">
+          <span class="streak-fire">&#128293;</span>
+          ${data.streak.count} day streak — keep it going!
+        </div>
+      ` : ''}
+
+      <!-- Strategy Banner -->
+      <div class="card dash-strategy-banner">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div>
+            <div style="font-size:12px; color:var(--text-dim); font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Exam Countdown</div>
+            <div style="font-size:28px; font-weight:700; color:${STREAMS.exam.color};">${daysLeft} <span style="font-size:14px; color:var(--text-dim);">days</span></div>
+            <div style="margin-top:4px;"><input type="date" class="strat-settings-input" value="${strat.examDate || '2026-11-01'}" onchange="Store.update(d => d.strategy.examDate = this.value); App.render();" style="font-size:11px; padding:2px 6px; width:auto;"></div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:12px; color:var(--text-dim); margin-bottom:4px;">Milestones: ${stratDone}/${stratTotal}</div>
+            <div class="progress-bar" style="width:160px;">
+              <div class="progress-fill" style="width:${stratPct}%; background:${STREAMS.exam.color};"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-number">${openTasks}</div>
+          <div class="stat-label">Open Tasks</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">${doneTasks}</div>
+          <div class="stat-label">Completed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">${totalCaptures}</div>
+          <div class="stat-label">Captures</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">${journalEntries}</div>
+          <div class="stat-label">Journal Entries</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">${activeGoals}</div>
+          <div class="stat-label">Goals</div>
+        </div>
+      </div>
+
+      <h3 style="margin-bottom:12px; font-size:16px; color:var(--text-dim);">Open Tasks</h3>
+      ${recentTasks.length ? `
+        <div class="item-list" style="margin-bottom:28px;">
+          ${recentTasks.map(t => `
+            <div class="item">
+              <div class="item-check ${t.done ? 'done' : ''}" onclick="App.toggleTask('${t.id}')"></div>
+              <div class="item-body">
+                <div class="item-title ${t.done ? 'done' : ''}">${escapeHTML(t.text)}</div>
+                <div class="item-meta">${t.category ? `<span class="tag tag-accent">${escapeHTML(t.category)}</span> ` : ''}${timeAgo(t.created)}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : '<div class="empty-state" style="padding:20px;"><div class="empty-text">No open tasks. Nice!</div></div>'}
+
+      <h3 style="margin-bottom:12px; font-size:16px; color:var(--text-dim);">Recent Captures</h3>
+      ${recentCaptures.length ? `
+        <div class="capture-grid">
+          ${recentCaptures.map(c => `
+            <div class="capture-card">
+              <div class="capture-text">${escapeHTML(c.text)}</div>
+              <div class="capture-time">${timeAgo(c.created)}</div>
+            </div>
+          `).join('')}
+        </div>
+      ` : '<div class="empty-state" style="padding:20px;"><div class="empty-text">Nothing captured yet. Use Capture to jot things down.</div></div>'}
+
+      ${App.vaultAvailable && App.vaultSuggestions && App.vaultSuggestions.suggestions && App.vaultSuggestions.suggestions.length > 0 ? `
+        <div class="card" style="border-left: 3px solid var(--amber); margin-top:20px;">
+          <div class="strat-section-label">Nexus Suggests</div>
+          ${App.vaultSuggestions.suggestions.map(s => `
+            <div class="suggestion-item">
+              <span class="suggestion-icon">${s.icon}</span>
+              <span class="suggestion-text">${escapeHTML(s.text)}</span>
+              ${s.action === 'log' ? '<button class="btn btn-ghost btn-sm" onclick="document.querySelector(\'[data-view=capture]\').click()">Log</button>' : ''}
+              ${s.action === 'review_tasks' ? '<button class="btn btn-ghost btn-sm" onclick="document.querySelector(\'[data-view=tasks]\').click()">Review</button>' : ''}
+              ${s.action === 'monthly_review' ? '<button class="btn btn-ghost btn-sm" onclick="App.openVaultFile(\'03 Monthly log.md\')">Reflect</button>' : ''}
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      ${App.vaultAvailable && App.vaultStats ? `
+        <h3 style="margin:20px 0 12px; font-size:16px; color:var(--text-dim);">Vault Insights</h3>
+        <div class="stats-grid">
+          <div class="stat-card" onclick="document.querySelector('[data-view=vault]').click()" style="cursor:pointer;">
+            <div class="stat-number" style="color:var(--green);">${App.vaultStats.totalFiles}</div>
+            <div class="stat-label">Vault Files</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">${App.vaultStats.totalDailyEntries}</div>
+            <div class="stat-label">Daily Entries</div>
+          </div>
+          <div class="stat-card" onclick="document.querySelector('[data-view=tasks]').click()" style="cursor:pointer;">
+            <div class="stat-number">${App.vaultTasks ? App.vaultTasks.summary.pending : App.vaultStats.pendingTasks}</div>
+            <div class="stat-label">Vault Pending</div>
+          </div>
+          <div class="stat-card" onclick="document.querySelector('[data-view=growth]').click()" style="cursor:pointer;">
+            <div class="stat-number">${App.vaultStats.entriesThisWeek}</div>
+            <div class="stat-label">This Week</div>
+          </div>
+        </div>
+
+        ${Object.keys(App.vaultStats.tagCounts || {}).length > 0 ? `
+          <div class="card">
+            <div class="strat-section-label">Top Tags</div>
+            <div class="vault-tag-cloud">
+              ${Object.entries(App.vaultStats.tagCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 15)
+                .map(([tag, count]) => {
+                  const size = count > 50 ? 'lg' : count > 15 ? 'md' : 'sm';
+                  return `<span class="vault-tag vault-tag-${size}" onclick="App.currentView='vault';App.vaultSearchByTag('${tag}')">#${escapeHTML(tag)} <small>${count}</small></span>`;
+                }).join(' ')}
+            </div>
+          </div>
+        ` : ''}
+      ` : ''}
+    `;
+  },
+
+  // ─── Today ──────────────────────────────────
+  today() {
+    const data = Store.get();
+    const todayDate = todayKey();
+    const dayName = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+    // Today's vault daily log
+    const todayLog = (App.vaultDailyEntries || []).find(d => d.date === todayDate);
+
+    // Due / overdue vault tasks
+    const vt = App.vaultTasks;
+    let overdueTasks = [];
+    let dueTodayTasks = [];
+    let activeTasks = [];
+    if (vt) {
+      const allPending = [...(vt.active || []), ...(vt.exam || []), ...(vt.backlog || []), ...(vt.other || [])];
+      overdueTasks = allPending.filter(t => t.dueDate && t.dueDate < todayDate);
+      dueTodayTasks = allPending.filter(t => t.dueDate === todayDate);
+      activeTasks = (vt.active || []).filter(t => !t.dueDate || t.dueDate > todayDate).slice(0, 5);
+    }
+
+    // Nexus tasks (open)
+    const openTasks = data.tasks.filter(t => !t.done).slice(-5).reverse();
+
+    // Strategy: current month allocation
+    const now = new Date();
+    const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    const curMonthKey = monthKeys[now.getMonth()];
+    const curAlloc = data.strategy.allocations[curMonthKey] || DEFAULT_ALLOC[curMonthKey] || {};
+    const examDate = new Date(data.strategy.examDate || '2026-11-01');
+    const daysLeft = Math.max(0, Math.ceil((examDate - now) / 864e5));
+
+    // Schedule
+    const userSchedule = data.strategy.schedule || WEEKLY_TEMPLATE;
+    const scheduleHTML = userSchedule.map(slot => {
+      const color = slot.stream === 'exam' ? STREAMS.exam.color : slot.stream === 'flex' ? 'var(--accent)' : 'var(--text-dim)';
+      return `<div class="today-sched-row"><span class="today-sched-time" style="color:${color};">${slot.time}</span><span>${escapeHTML(slot.activity)}</span></div>`;
+    }).join('');
+
+    function miniTaskItem(t, isVault) {
+      const safeSource = isVault && t.source ? t.source.replace(/'/g, "\\'") : '';
+      const check = isVault
+        ? `<div class="item-check ${t.done ? 'done' : ''}" onclick="App.toggleVaultTask('${safeSource}', ${t.line})"></div>`
+        : `<div class="item-check ${t.done ? 'done' : ''}" onclick="App.toggleTask('${t.id}')"></div>`;
+      const overdue = isVault && t.dueDate && t.dueDate < todayDate ? ' vtask-overdue' : '';
+      const dueLabel = isVault && t.dueDate ? `<span class="vtask-due${overdue}">${t.dueDate}</span>` : '';
+      return `<div class="item">${check}<div class="item-body"><div class="item-title">${escapeHTML(t.text)}</div><div class="item-meta">${dueLabel}</div></div></div>`;
+    }
+
+    // Timer state
+    const ts = App.timerState || {};
+    let timerDisplay, timerPct;
+    if (ts.mode === 'stopwatch') {
+      const e = ts.elapsed || 0;
+      const h = Math.floor(e / 3600);
+      const m = Math.floor((e % 3600) / 60);
+      const s = e % 60;
+      timerDisplay = h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      timerPct = (e % 60) / 60 * 100;
+    } else {
+      const timerMins = Math.floor((ts.seconds || 0) / 60);
+      const timerSecs = (ts.seconds || 0) % 60;
+      timerDisplay = `${String(timerMins).padStart(2, '0')}:${String(timerSecs).padStart(2, '0')}`;
+      timerPct = ts.total ? Math.round(((ts.total - (ts.seconds || 0)) / ts.total) * 100) : 0;
+    }
+
+    // Habits
+    const habits = data.habits || { definitions: [], log: {} };
+    const todayHabitLog = habits.log[todayDate] || {};
+    function habitStreak(habitId) {
+      let streak = 0;
+      const d = new Date();
+      for (let i = 0; i < 60; i++) {
+        const dk = d.toISOString().slice(0, 10);
+        const dayLog = habits.log[dk] || {};
+        if (dayLog[habitId]) { streak++; d.setDate(d.getDate() - 1); }
+        else break;
+      }
+      return streak;
+    }
+
+    // Spaced repetition: topics due for review
+    const topicsDue = App.getTopicsDue ? App.getTopicsDue() : [];
+
+    return `
+      <h1 class="view-title">${dayName}</h1>
+      <p class="view-subtitle">${daysLeft} days to exam &middot; Focus: ${curAlloc.exam || 0}% exam</p>
+
+      <!-- Quick Add -->
+      <div class="today-quick-add">
+        <input type="text" id="today-quick-input" placeholder="Quick capture... (press Enter)"
+          onkeydown="if(event.key==='Enter'){App.todayQuickAdd(); event.preventDefault();}">
+        <button class="btn btn-primary btn-sm" onclick="App.todayQuickAdd()">Add</button>
+      </div>
+
+      <!-- Study Timer -->
+      <div class="card timer-card">
+        <div class="strat-section-label">Study Timer</div>
+        <div class="timer-display">
+          <div class="timer-progress-ring">
+            <svg viewBox="0 0 100 100" width="120" height="120">
+              <circle cx="50" cy="50" r="44" fill="none" stroke="var(--border)" stroke-width="6"/>
+              <circle cx="50" cy="50" r="44" fill="none" stroke="${ts.mode === 'stopwatch' ? '#4ecdc4' : 'var(--accent)'}" stroke-width="6"
+                stroke-dasharray="${2 * Math.PI * 44}" stroke-dashoffset="${2 * Math.PI * 44 * (1 - timerPct / 100)}"
+                transform="rotate(-90 50 50)" stroke-linecap="round" style="transition: stroke-dashoffset 0.5s"/>
+            </svg>
+            <div class="timer-time">${timerDisplay}</div>
+          </div>
+        </div>
+        <div class="timer-controls">
+          ${ts.completed ? `
+            <div style="text-align:center; margin-bottom:8px; color:var(--accent); font-weight:600;">✓ ${ts.completedDuration}min ${ts.completedType} done!</div>
+            <input type="text" id="timer-note" class="strat-settings-input" placeholder="What did you study? (optional)" style="margin-bottom:8px; width:100%;">
+            <button class="btn btn-primary btn-sm" onclick="App.timerLogToCapture()">Log to Capture</button>
+            <button class="btn btn-ghost btn-sm" onclick="App.timerDismiss()">Dismiss</button>
+          ` : ts.running ? `
+            <button class="btn btn-ghost btn-sm" onclick="App.pauseTimer()">Pause</button>
+            ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary btn-sm" onclick="App.stopTimer()">Stop</button>` : ''}
+            <button class="btn btn-ghost btn-sm" onclick="App.resetTimer()">Reset</button>
+          ` : (ts.seconds > 0 || ts.mode === 'stopwatch') ? `
+            <button class="btn btn-primary btn-sm" onclick="App.resumeTimer()">Resume</button>
+            ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary btn-sm" onclick="App.stopTimer()">Stop</button>` : ''}
+            <button class="btn btn-ghost btn-sm" onclick="App.resetTimer()">Reset</button>
+          ` : `
+            <div class="timer-presets">
+              <button class="btn btn-primary btn-sm" onclick="App.startTimer(25, 'Pomodoro')">25m</button>
+              <button class="btn btn-ghost btn-sm" onclick="App.startTimer(45, 'Deep Work')">45m</button>
+              <button class="btn btn-ghost btn-sm" onclick="App.startTimer(15, 'Short')">15m</button>
+            </div>
+            <div class="timer-custom-row">
+              <input type="number" id="timer-custom-min" placeholder="Min" min="1" max="999" class="timer-custom-input"
+                onkeydown="if(event.key==='Enter'){App.startCustomTimer(); event.preventDefault();}">
+              <button class="btn btn-ghost btn-sm" onclick="App.startCustomTimer()">Start</button>
+              <button class="btn btn-ghost btn-sm" onclick="App.startTimer(0, 'Stopwatch', 'stopwatch')" title="Count up">⏱ Stopwatch</button>
+            </div>
+          `}
+        </div>
+        ${ts.type && !ts.completed ? `<div style="font-size:11px; color:var(--text-dim); text-align:center; margin-top:4px;">${ts.type}${ts.mode === 'stopwatch' ? ' (counting up)' : ''}</div>` : ''}
+      </div>
+
+      <!-- Habits -->
+      ${habits.definitions.length > 0 ? `
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div class="strat-section-label" style="margin:0;">Habits</div>
+            <span class="vtask-source" onclick="App.showHabitEditor=!App.showHabitEditor; App.render();">Edit</span>
+          </div>
+          <div class="habits-row">
+            ${habits.definitions.map(h => {
+              const checked = todayHabitLog[h.id];
+              const streak = habitStreak(h.id);
+              return `<div class="habit-item ${checked ? 'habit-done' : ''}" onclick="App.toggleHabit('${h.id}')">
+                <span class="habit-icon">${h.icon || '&#9744;'}</span>
+                <span class="habit-name">${escapeHTML(h.name)}</span>
+                ${streak > 1 ? `<span class="habit-streak">${streak}d</span>` : ''}
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+      ` : `
+        <div class="card" style="text-align:center; padding:12px;">
+          <span style="font-size:13px; color:var(--text-dim);">No habits tracked yet.</span>
+          <button class="btn btn-ghost btn-sm" onclick="App.showHabitEditor=true; App.render();" style="margin-left:8px;">Add Habits</button>
+        </div>
+      `}
+
+      <!-- Habit Editor (inline) -->
+      ${App.showHabitEditor ? `
+        <div class="card">
+          <div class="strat-section-label">Edit Habits</div>
+          ${habits.definitions.map((h, i) => `
+            <div class="strat-settings-row" style="margin-bottom:6px; cursor:grab;" draggable="true"
+              ondragstart="App.onHabitDragStart(event, ${i})"
+              ondragover="event.preventDefault(); this.classList.add('drag-over')"
+              ondragleave="this.classList.remove('drag-over')"
+              ondrop="this.classList.remove('drag-over'); App.onHabitDrop(event, ${i})">
+              <span style="color:var(--text-dim); cursor:grab;">&#8942;</span>
+              <input type="text" class="strat-settings-input" value="${escapeHTML(h.icon || '')}" style="width:40px; text-align:center;" disabled>
+              <input type="text" class="strat-settings-input" value="${escapeHTML(h.name)}" style="flex:1;" disabled>
+              <button class="btn btn-ghost btn-sm" onclick="App.deleteHabit('${h.id}')">&times;</button>
+            </div>
+          `).join('')}
+          <div class="strat-settings-row" style="margin-top:8px;">
+            <input type="text" id="habit-icon-input" class="strat-settings-input" placeholder="Icon" style="width:40px; text-align:center;" value="&#9745;">
+            <input type="text" id="habit-name-input" class="strat-settings-input" placeholder="Habit name" style="flex:1;"
+              onkeydown="if(event.key==='Enter')App.addHabit()">
+            <button class="btn btn-primary btn-sm" onclick="App.addHabit()">Add</button>
+          </div>
+          <div style="text-align:right; margin-top:8px;">
+            <button class="btn btn-ghost btn-sm" onclick="App.showHabitEditor=false; App.render();">Done</button>
+          </div>
+        </div>
+      ` : ''}
+
+      <!-- Topics Due for Review -->
+      ${topicsDue.length > 0 ? `
+        <div class="card today-alert-card" style="border-left:3px solid var(--amber);">
+          <div class="strat-section-label" style="color:var(--amber);">Due for Review (${topicsDue.length})</div>
+          <div class="item-list">
+            ${topicsDue.map(t => `
+              <div class="item" style="cursor:pointer;" onclick="App.markTopicReviewed('${t.id}')">
+                <div class="item-check" style="background:var(--amber); opacity:0.6;"></div>
+                <div class="item-body">
+                  <div class="item-title">${escapeHTML(t.name)}</div>
+                  <div class="item-meta">${t.category ? escapeHTML(t.category) + ' &middot; ' : ''}${t.status} &middot; last: ${t.lastStudied || 'never'}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      ${overdueTasks.length > 0 ? `
+        <div class="card today-alert-card">
+          <div class="strat-section-label" style="color:var(--red);">Overdue (${overdueTasks.length})</div>
+          <div class="item-list">${overdueTasks.map(t => miniTaskItem(t, true)).join('')}</div>
+        </div>
+      ` : ''}
+
+      ${dueTodayTasks.length > 0 ? `
+        <div class="card">
+          <div class="strat-section-label" style="color:var(--amber);">Due Today (${dueTodayTasks.length})</div>
+          <div class="item-list">${dueTodayTasks.map(t => miniTaskItem(t, true)).join('')}</div>
+        </div>
+      ` : ''}
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <!-- Active Tasks -->
+        <div class="card">
+          <div class="strat-section-label">Active Tasks</div>
+          ${activeTasks.length || openTasks.length ? `
+            <div class="item-list">
+              ${openTasks.map(t => miniTaskItem(t, false)).join('')}
+              ${activeTasks.map(t => miniTaskItem(t, true)).join('')}
+            </div>
+          ` : '<div style="font-size:13px; color:var(--text-dim); padding:8px;">All clear!</div>'}
+        </div>
+
+        <!-- Schedule -->
+        <div class="card">
+          <div class="strat-section-label">Schedule</div>
+          ${scheduleHTML}
+        </div>
+      </div>
+
+      <!-- Today's Rapid Log -->
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div class="strat-section-label" style="margin:0;">Today's Log</div>
+          <span class="vtask-source" onclick="App.openVaultFile('02 Rapid logging.md')">Open in Vault</span>
+        </div>
+        ${todayLog && todayLog.lines.filter(l => l.trim()).length > 0 ? `
+          <div class="vault-daily-lines">${todayLog.lines.filter(l => l.trim()).map(l => escapeHTML(l)).join('<br>')}</div>
+        ` : '<div style="font-size:13px; color:var(--text-dim);">Nothing logged yet today. Use the quick add above.</div>'}
+      </div>
+    `;
+  },
+
+  // ─── Capture ─────────────────────────────────
+  capture() {
+    const data = Store.get();
+    let captures = [...data.captures].reverse();
+
+    // Extract all tags across captures
+    const allTags = {};
+    for (const c of captures) {
+      const tags = c.text.match(/#\w+/g) || [];
+      for (const t of tags) allTags[t.toLowerCase()] = (allTags[t.toLowerCase()] || 0) + 1;
+    }
+    const tagList = Object.entries(allTags).sort((a, b) => b[1] - a[1]);
+
+    // Filter by tag if active
+    const activeTag = App.captureTagFilter || '';
+    if (activeTag) {
+      captures = captures.filter(c => c.text.toLowerCase().includes(activeTag));
+    }
+
+    return `
+      <h1 class="view-title">Capture</h1>
+      <p class="view-subtitle">Quick thoughts, ideas, anything — get it out of your head</p>
+
+      <div style="margin-bottom:20px;">
+        <textarea id="capture-input" placeholder="What's on your mind? Use #tags to categorize" rows="3"></textarea>
+        <div style="margin-top:10px; display:flex; justify-content:space-between; align-items:center;">
+          ${App.vaultAvailable ? `
+            <label class="vault-toggle-label">
+              <input type="checkbox" id="capture-vault-toggle" checked>
+              <span>Also log to vault</span>
+            </label>
+          ` : '<div></div>'}
+          <button class="btn btn-primary" onclick="App.addCapture()">Capture</button>
+        </div>
+      </div>
+
+      ${tagList.length ? `
+        <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px;">
+          <span class="tag-badge ${!activeTag ? 'tag-active' : ''}" onclick="App.captureTagFilter=''; App.render();">All</span>
+          ${tagList.map(([tag, count]) => `
+            <span class="tag-badge ${activeTag === tag ? 'tag-active' : ''}" onclick="App.captureTagFilter='${tag}'; App.render();">${tag} (${count})</span>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      ${captures.length ? `
+        <div class="capture-grid">
+          ${captures.map(c => {
+            const tags = c.text.match(/#\w+/g) || [];
+            return `
+            <div class="capture-card">
+              <button class="item-delete" onclick="App.deleteCapture('${c.id}')">&times;</button>
+              <div class="capture-text">${escapeHTML(c.text)}</div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+                <div class="capture-time">${formatDate(c.created)}</div>
+                ${tags.length ? `<div style="display:flex; gap:4px;">${tags.map(t => `<span class="tag-badge-sm">${t}</span>`).join('')}</div>` : ''}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      ` : `
+        <div class="empty-state">
+          <div class="empty-icon">&#9889;</div>
+          <div class="empty-text">${activeTag ? 'No captures with this tag.' : 'Your captures will appear here.'}</div>
+        </div>
+      `}
+    `;
+  },
+
+  // ─── Tasks ───────────────────────────────────
+  tasks() {
+    const data = Store.get();
+    const filter = App.taskFilter || 'all';
+    let tasks = [...data.tasks].reverse();
+
+    if (filter === 'active') tasks = tasks.filter(t => !t.done);
+    else if (filter === 'done') tasks = tasks.filter(t => t.done);
+
+    // Vault tasks
+    const vt = App.vaultTasks;
+    const vtab = App.vaultTaskTab || 'active';
+    const vtSummary = vt ? vt.summary : null;
+
+    function vaultTaskItem(t) {
+      const tagPills = (t.tags || []).map(tag =>
+        `<span class="tag tag-accent">#${escapeHTML(tag)}</span>`
+      ).join(' ');
+      const due = t.dueDate ? `<span class="vtask-due${new Date(t.dueDate) < new Date() && !t.done ? ' vtask-overdue' : ''}">\u{1F4C5} ${t.dueDate}</span>` : '';
+      const pri = t.priority !== 'normal' ? `<span class="vtask-pri vtask-pri-${t.priority}">${t.priority}</span>` : '';
+      const source = t.source ? `<span class="vtask-source" onclick="event.stopPropagation();App.openVaultFile('${t.source.replace(/'/g, "\\'")}')" title="${escapeHTML(t.source)}">${escapeHTML(t.source.replace('.md','').split('/').pop())}</span>` : '';
+      const safeSource = t.source ? t.source.replace(/'/g, "\\'") : '';
+      return `
+        <div class="item vtask-item">
+          <div class="item-check ${t.done ? 'done' : ''}" onclick="App.toggleVaultTask('${safeSource}', ${t.line})"></div>
+          <div class="item-body">
+            <div class="item-title ${t.done ? 'done' : ''}">${escapeHTML(t.text)}</div>
+            <div class="item-meta">${tagPills} ${due} ${pri} ${source} ${t.doneDate ? `<span class="vtask-done">\u2705 ${t.doneDate}</span>` : ''}</div>
+          </div>
+        </div>`;
+    }
+
+    let vaultTaskList = [];
+    if (vt) {
+      if (vtab === 'active') vaultTaskList = vt.active || [];
+      else if (vtab === 'exam') vaultTaskList = vt.exam || [];
+      else if (vtab === 'backlog') vaultTaskList = vt.backlog || [];
+      else if (vtab === 'other') vaultTaskList = vt.other || [];
+      else if (vtab === 'archived') vaultTaskList = vt.archived || [];
+    }
+
+    return `
+      <h1 class="view-title">Tasks</h1>
+      <p class="view-subtitle">Track what needs to get done</p>
+
+      <div class="input-row">
+        <input type="text" id="task-input" placeholder="Add a task..." onkeydown="if(event.key==='Enter')App.addTask()">
+        <input type="text" id="task-category" placeholder="Category" style="max-width:140px;" onkeydown="if(event.key==='Enter')App.addTask()">
+        <button class="btn btn-primary" onclick="App.addTask()">Add</button>
+      </div>
+
+      <div class="filter-tabs">
+        <span class="filter-tab ${filter==='all'?'active':''}" onclick="App.setTaskFilter('all')">All (${data.tasks.length})</span>
+        <span class="filter-tab ${filter==='active'?'active':''}" onclick="App.setTaskFilter('active')">Active (${data.tasks.filter(t=>!t.done).length})</span>
+        <span class="filter-tab ${filter==='done'?'active':''}" onclick="App.setTaskFilter('done')">Done (${data.tasks.filter(t=>t.done).length})</span>
+      </div>
+
+      ${tasks.length ? `
+        <div class="item-list">
+          ${tasks.map(t => `
+            <div class="item">
+              <div class="item-check ${t.done ? 'done' : ''}" onclick="App.toggleTask('${t.id}')"></div>
+              <div class="item-body">
+                <div class="item-title ${t.done ? 'done' : ''}">${escapeHTML(t.text)}</div>
+                <div class="item-meta">
+                  ${t.category ? `<span class="tag tag-accent">${escapeHTML(t.category)}</span> ` : ''}
+                  ${formatDate(t.created)}
+                </div>
+              </div>
+              <button class="item-delete" onclick="App.deleteTask('${t.id}')">&times;</button>
+            </div>
+          `).join('')}
+        </div>
+      ` : `
+        <div class="empty-state" style="padding:20px;">
+          <div class="empty-text">${filter === 'done' ? 'No completed tasks yet.' : 'All clear! Add a task above.'}</div>
+        </div>
+      `}
+
+      ${vt ? `
+        <div class="vtask-section">
+          <div class="vtask-header">
+            <h3 class="vtask-title">Vault Tasks</h3>
+            <span class="vtask-summary">${vtSummary.pending} pending &middot; ${vtSummary.done} done</span>
+          </div>
+
+          <div class="filter-tabs">
+            <span class="filter-tab ${vtab==='active'?'active':''}" onclick="App.setVaultTaskTab('active')">Active (${vtSummary.activeCount})</span>
+            <span class="filter-tab ${vtab==='exam'?'active':''}" onclick="App.setVaultTaskTab('exam')">Exam (${vtSummary.examCount})</span>
+            <span class="filter-tab ${vtab==='backlog'?'active':''}" onclick="App.setVaultTaskTab('backlog')">Backlog (${vtSummary.backlogCount})</span>
+            ${vtSummary.otherCount > 0 ? `<span class="filter-tab ${vtab==='other'?'active':''}" onclick="App.setVaultTaskTab('other')">Other (${vtSummary.otherCount})</span>` : ''}
+            <span class="filter-tab ${vtab==='archived'?'active':''}" onclick="App.setVaultTaskTab('archived')">Done (${vtSummary.done})</span>
+          </div>
+
+          ${vaultTaskList.length ? `
+            <div class="item-list">
+              ${vaultTaskList.map(vaultTaskItem).join('')}
+            </div>
+          ` : `
+            <div class="empty-state" style="padding:20px;">
+              <div class="empty-text">No tasks in this category.</div>
+            </div>
+          `}
+        </div>
+      ` : ''}
+    `;
+  },
+
+  // ─── Journal ─────────────────────────────────
+  journal() {
+    const data = Store.get();
+    const entries = [...data.journal].reverse();
+    const vaultDays = App.vaultDailyEntries || [];
+
+    return `
+      <h1 class="view-title">Journal</h1>
+      <p class="view-subtitle">Reflect, learn, grow — one entry at a time</p>
+
+      <div style="margin-bottom:24px;">
+        <textarea id="journal-input" placeholder="What happened today? What did you learn?" rows="4"></textarea>
+        <div style="margin-top:10px; display:flex; justify-content:space-between; align-items:center;">
+          ${App.vaultAvailable ? `
+            <label class="vault-toggle-label">
+              <input type="checkbox" id="journal-vault-toggle" checked>
+              <span>Also log to vault</span>
+            </label>
+          ` : '<div></div>'}
+          <button class="btn btn-primary" onclick="App.addJournal()">Save Entry</button>
+        </div>
+      </div>
+
+      ${entries.length ? `
+        <h3 style="margin-bottom:12px; font-size:14px; color:var(--text-dim);">Nexus Entries</h3>
+        <div style="margin-bottom:24px;">
+          ${entries.map(e => `
+            <div class="journal-entry">
+              <div class="journal-date">${formatDate(e.created)}</div>
+              <div class="journal-text">${escapeHTML(e.text)}</div>
+              <button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="App.deleteJournal('${e.id}')">Delete</button>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      ${vaultDays.length ? `
+        <div class="vtask-section" style="border-top:${entries.length ? '1px solid var(--border)' : 'none'};">
+          <div class="vtask-header">
+            <h3 class="vtask-title">Rapid Log</h3>
+            <span class="vtask-summary" style="cursor:pointer;" onclick="App.openVaultFile('02 Rapid logging.md')">Open in Vault</span>
+          </div>
+          ${vaultDays.map(day => `
+            <div class="journal-entry">
+              <div class="journal-date">${day.date}</div>
+              <div class="journal-text vault-daily-lines">${day.lines.filter(l => l.trim()).map(l => escapeHTML(l)).join('<br>')}</div>
+            </div>
+          `).join('')}
+        </div>
+      ` : `
+        ${!entries.length ? `
+          <div class="empty-state">
+            <div class="empty-icon">&#9998;</div>
+            <div class="empty-text">Start writing. Your future self will thank you.</div>
+          </div>
+        ` : ''}
+      `}
+    `;
+  },
+
+  // ─── Goals ───────────────────────────────────
+  goals() {
+    const data = Store.get();
+
+    return `
+      <h1 class="view-title">Goals</h1>
+      <p class="view-subtitle">Set targets, track progress, level up</p>
+
+      <div class="input-row">
+        <input type="text" id="goal-input" placeholder="What's your goal?" onkeydown="if(event.key==='Enter')App.addGoal()">
+        <input type="text" id="goal-target" placeholder="Target (number)" style="max-width:130px;" onkeydown="if(event.key==='Enter')App.addGoal()">
+        <button class="btn btn-primary" onclick="App.addGoal()">Add Goal</button>
+      </div>
+
+      ${data.goals.length ? `
+        <div class="item-list">
+          ${data.goals.map(g => {
+            const pct = g.target > 0 ? Math.min(100, Math.round((g.current / g.target) * 100)) : 0;
+            const isDone = pct >= 100;
+            return `
+              <div class="card">
+                <div class="goal-header">
+                  <span class="goal-title">${isDone ? '&#10003; ' : ''}${escapeHTML(g.text)}</span>
+                  <span class="goal-pct">${g.current} / ${g.target} (${pct}%)</span>
+                </div>
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width:${pct}%; background:${isDone ? 'var(--green)' : 'var(--accent)'}"></div>
+                </div>
+                <div style="margin-top:10px; display:flex; gap:8px;">
+                  <button class="btn btn-ghost btn-sm" onclick="App.incrementGoal('${g.id}', -1)">-1</button>
+                  <button class="btn btn-primary btn-sm" onclick="App.incrementGoal('${g.id}', 1)">+1</button>
+                  <button class="btn btn-ghost btn-sm" onclick="App.incrementGoal('${g.id}', 5)">+5</button>
+                  <button class="btn btn-ghost btn-sm" onclick="App.incrementGoal('${g.id}', 10)">+10</button>
+                  <div style="flex:1;"></div>
+                  <button class="btn btn-ghost btn-sm" onclick="App.deleteGoal('${g.id}')">Remove</button>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      ` : `
+        <div class="empty-state">
+          <div class="empty-icon">&#9650;</div>
+          <div class="empty-text">No goals yet. What are you working toward?</div>
+        </div>
+      `}
+    `;
+  },
+
+  // ─── Strategy ──────────────────────────────────
+  strategy() {
+    const data = Store.get();
+    const s = data.strategy;
+    const month = App.strategyMonth || 'feb';
+    const tab = App.strategyTab || 'roadmap';
+    const mIdx = STRATEGY_MONTHS.findIndex(m => m.key === month);
+    const mLabel = STRATEGY_MONTHS[mIdx]?.label || month;
+
+    const allMs = Object.values(s.milestones).flat();
+    const totalMs = allMs.length;
+    const doneMs = allMs.filter(m => m.done).length;
+    const pct = totalMs ? Math.round((doneMs / totalMs) * 100) : 0;
+
+    const examDate = new Date(s.examDate || '2026-11-01');
+    const daysLeft = Math.max(0, Math.ceil((examDate - new Date()) / 864e5));
+
+    const phase = mIdx <= 3 ? 'Foundation + Manuscript' : mIdx <= 5 ? 'Deep Study + Feature Freeze' : mIdx <= 7 ? 'Exam Intensive' : 'Final Sprint';
+
+    const curAlloc = s.allocations[month] || DEFAULT_ALLOC[month];
+    const curMs = s.milestones[month] || [];
+    const monthDone = curMs.filter(m => m.done).length;
+
+    function allocBar(alloc) {
+      return Object.entries(STREAMS).map(([k, st]) => {
+        const val = alloc[k] || 0;
+        if (val === 0) return '';
+        return `<div class="strat-alloc-seg" style="width:${val}%; background:${st.color};">${val >= 12 ? val + '%' : ''}</div>`;
+      }).join('');
+    }
+
+    function priorityBadge(p) {
+      const m = { critical: ['var(--red)', 'CRIT'], high: ['var(--amber)', 'HIGH'], medium: ['var(--accent)', 'MED'], low: ['var(--text-dim)', 'LOW'] };
+      const [c, l] = m[p] || m.low;
+      return `<span class="strat-badge" style="color:${c}; border-color:${c};">${l}</span>`;
+    }
+
+    // Sub-tab content
+    let tabContent = '';
+
+    if (tab === 'roadmap') {
+      tabContent = `
+        <!-- Month Pills -->
+        <div class="strat-months">
+          ${STRATEGY_MONTHS.map(m => {
+            const mMs = s.milestones[m.key] || [];
+            const mD = mMs.filter(x => x.done).length;
+            const allD = mMs.length > 0 && mD === mMs.length;
+            const remaining = mMs.length - mD;
+            return `<button class="strat-month-pill ${month === m.key ? 'active' : ''} ${allD ? 'all-done' : ''}"
+              onclick="App.setStrategyMonth('${m.key}')">
+              ${m.label}
+              ${mMs.length > 0 && !allD ? `<span class="strat-month-badge">${remaining}</span>` : ''}
+              ${allD && mMs.length > 0 ? '<span class="strat-month-check">&#10003;</span>' : ''}
+            </button>`;
+          }).join('')}
+        </div>
+
+        <!-- Allocation Card -->
+        <div class="card">
+          <div class="strat-section-label">Time Allocation \u2014 ${mLabel} 2026</div>
+          <div class="strat-alloc-bar">${allocBar(curAlloc)}</div>
+          <div class="strat-alloc-legend">
+            ${Object.entries(STREAMS).map(([k, st]) => `
+              <span class="strat-legend-item">
+                <span class="strat-legend-dot" style="background:${st.color};"></span>
+                ${st.icon} ${st.name} (${curAlloc[k] || 0}%)
+              </span>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Milestones Card -->
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <div class="strat-section-label" style="margin-bottom:0;">Milestones \u2014 ${mLabel} (${monthDone}/${curMs.length})</div>
+            <button class="btn btn-primary btn-sm" onclick="App.showStrategyAddForm()">+ Add</button>
+          </div>
+
+          <div id="strat-add-form" style="display:none; margin-bottom:16px; padding:14px; background:var(--bg-input); border-radius:8px;">
+            <input type="text" id="strat-ms-text" placeholder="What needs to happen?">
+            <div style="display:flex; gap:8px; margin-top:8px;">
+              <select id="strat-ms-stream" style="flex:1;">
+                ${Object.entries(STREAMS).map(([k, st]) => `<option value="${k}">${st.icon} ${st.name}</option>`).join('')}
+              </select>
+              <select id="strat-ms-priority" style="flex:1;">
+                <option value="critical">Critical</option>
+                <option value="high" selected>High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              <button class="btn btn-primary btn-sm" onclick="App.addStrategyMilestone()">Add</button>
+            </div>
+          </div>
+
+          ${curMs.length === 0 ? `
+            <div class="empty-state" style="padding:24px;">
+              <div class="empty-text">No milestones for ${mLabel}. Add one above.</div>
+            </div>
+          ` : `
+            <div class="item-list">
+              ${curMs.map((m, idx) => {
+                const st = STREAMS[m.stream] || STREAMS.exam;
+                return `
+                  <div class="item strat-milestone ${m.done ? 'strat-done' : ''}" draggable="true"
+                    ondragstart="App.onMilestoneDragStart(event, '${month}', ${idx})"
+                    ondragover="event.preventDefault(); this.classList.add('drag-over')"
+                    ondragleave="this.classList.remove('drag-over')"
+                    ondrop="this.classList.remove('drag-over'); App.onMilestoneDrop(event, '${month}', ${idx})">
+                    <div class="item-check ${m.done ? 'done' : ''}" style="border-color:${m.done ? '' : st.color + '60'};"
+                      onclick="App.toggleStrategyMilestone('${month}', ${idx})"></div>
+                    <div class="item-body">
+                      <div class="item-title ${m.done ? 'done' : ''}">${escapeHTML(m.text)}</div>
+                      <div class="item-meta">
+                        <span style="color:${st.color}; font-weight:600;">${st.icon} ${st.name}</span>
+                        ${priorityBadge(m.priority)}
+                      </div>
+                    </div>
+                    <button class="item-delete" onclick="App.deleteStrategyMilestone('${month}', ${idx})">&times;</button>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `}
+        </div>
+
+        <!-- Notes -->
+        <div class="card">
+          <div class="strat-section-label">Notes \u2014 ${mLabel}</div>
+          <textarea id="strat-notes" placeholder="What went well? What needs adjustment?"
+            onchange="App.saveStrategyNote('${month}', this.value)"
+            rows="3" style="min-height:70px;">${escapeHTML(s.notes[month] || '')}</textarea>
+        </div>
+
+        <!-- Full Timeline -->
+        <div class="card">
+          <div class="strat-section-label">Full Timeline</div>
+          ${STRATEGY_MONTHS.map(m => `
+            <div class="strat-timeline-row" onclick="App.setStrategyMonth('${m.key}')" style="cursor:pointer;">
+              <span class="strat-timeline-label ${month === m.key ? 'active' : ''}">${m.label}</span>
+              <div class="strat-alloc-bar" style="flex:1; height:20px;">${allocBar(s.allocations[m.key] || DEFAULT_ALLOC[m.key])}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    } else if (tab === 'weekly') {
+      tabContent = `
+        <div class="card">
+          <div class="strat-section-label">Ideal Weekday Schedule</div>
+          ${(s.schedule || WEEKLY_TEMPLATE).map((slot, i) => {
+            const color = slot.stream === 'exam' ? STREAMS.exam.color : slot.stream === 'flex' ? 'var(--accent)' : 'var(--text-dim)';
+            return `
+              <div class="strat-schedule-row">
+                <span class="strat-time" style="color:${color};">${slot.time}</span>
+                <span class="strat-activity">${escapeHTML(slot.activity)}</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+        <div class="card" style="border-left:3px solid var(--amber); background:rgba(251,191,36,0.05);">
+          <div style="font-size:13px; font-weight:700; color:var(--amber); margin-bottom:6px;">Synergy Tip</div>
+          <div style="font-size:13px; line-height:1.6; color:var(--text);">
+            Your spine expertise from Scoliox work directly boosts exam performance. When studying Spine topics, you're investing in both streams. Prioritize Spine chapters in Feb-Mar to maximize this overlap.
+          </div>
+        </div>
+      `;
+    } else if (tab === 'rules') {
+      tabContent = `
+        <div class="card">
+          <div class="strat-section-label">If-Then Decision Framework</div>
+          ${DECISION_RULES.map(r => `
+            <div class="strat-rule">
+              <span class="strat-rule-icon">${r.icon}</span>
+              <div>
+                <div style="font-size:13px; font-weight:600; margin-bottom:2px;">IF: ${escapeHTML(r.trigger)}</div>
+                <div style="font-size:13px; color:${STREAMS.exam.color}; font-weight:600;">THEN: ${escapeHTML(r.action)}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="card" style="background:linear-gradient(135deg, #1a1a2e, #16213e); border:none;">
+          <div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:rgba(255,255,255,0.4); margin-bottom:8px;">Golden Rule</div>
+          <div style="font-size:14px; line-height:1.7; color:rgba(255,255,255,0.9);">
+            You can publish a paper in December. You can only sit this exam on schedule. When in doubt \u2014 choose exam prep. Your deep spine expertise and analytical thinking from AI work give you edges that pure-exam candidates don't have. Execute with discipline.
+          </div>
+        </div>
+      `;
+    } else if (tab === 'settings') {
+      const examDateVal = s.examDate || '2026-11-01';
+      const examPreview = new Date(examDateVal).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+      const userSched = s.schedule || WEEKLY_TEMPLATE;
+
+      tabContent = `
+        <!-- Exam Date -->
+        <div class="card">
+          <div class="strat-section-label">Exam Date</div>
+          <div class="strat-settings-form">
+            <div class="strat-settings-row">
+              <input type="date" id="settings-exam-date" class="strat-settings-input" value="${examDateVal}">
+              <button class="btn btn-primary btn-sm" onclick="App.saveExamDate()">Save</button>
+            </div>
+            <div class="strat-date-preview">${examPreview} &mdash; ${daysLeft} days away</div>
+          </div>
+        </div>
+
+        <!-- Schedule -->
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <div class="strat-section-label" style="margin:0;">Daily Schedule</div>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-ghost btn-sm" onclick="App.resetSchedule()">Reset Default</button>
+              <button class="btn btn-primary btn-sm" onclick="App.saveSchedule()">Save</button>
+            </div>
+          </div>
+          <div id="schedule-editor">
+            ${userSched.map((slot, i) => `
+              <div class="strat-settings-row" data-slot="${i}" draggable="true"
+                ondragstart="App.onScheduleDragStart(event, ${i})"
+                ondragover="event.preventDefault(); this.classList.add('drag-over')"
+                ondragleave="this.classList.remove('drag-over')"
+                ondrop="this.classList.remove('drag-over'); App.onScheduleDrop(event, ${i})">
+                <span class="drag-handle">&#9776;</span>
+                <input type="text" class="strat-settings-input sched-time" value="${escapeHTML(slot.time)}" placeholder="Time" style="width:100px;">
+                <input type="text" class="strat-settings-input sched-activity" value="${escapeHTML(slot.activity)}" placeholder="Activity" style="flex:1;">
+                <select class="strat-settings-select sched-stream">
+                  <option value="" ${!slot.stream ? 'selected' : ''}>None</option>
+                  <option value="exam" ${slot.stream === 'exam' ? 'selected' : ''}>Exam</option>
+                  <option value="flex" ${slot.stream === 'flex' ? 'selected' : ''}>Flex</option>
+                </select>
+                <button class="btn btn-ghost btn-sm" onclick="App.removeScheduleSlot(${i})" title="Remove">&times;</button>
+              </div>
+            `).join('')}
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="App.addScheduleSlot()" style="margin-top:8px;">+ Add Slot</button>
+        </div>
+      `;
+    } else if (tab === 'topics') {
+      const topics = data.topics || [];
+      const categories = [...new Set(topics.map(t => t.category || 'Uncategorized'))].sort();
+      const statusColors = { 'not-started': 'var(--text-dim)', weak: 'var(--red)', moderate: 'var(--amber)', strong: 'var(--green)' };
+      const total = topics.length;
+      const studied = topics.filter(t => t.status !== 'not-started').length;
+      const weak = topics.filter(t => t.status === 'weak').length;
+      const strong = topics.filter(t => t.status === 'strong').length;
+
+      tabContent = `
+        <!-- Topic Summary -->
+        ${total > 0 ? `
+          <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom:16px;">
+            <div class="stat-card" style="padding:10px;">
+              <div class="stat-number" style="font-size:18px;">${total}</div>
+              <div class="stat-label">Topics</div>
+            </div>
+            <div class="stat-card" style="padding:10px;">
+              <div class="stat-number" style="font-size:18px; color:var(--accent);">${total > 0 ? Math.round(studied / total * 100) : 0}%</div>
+              <div class="stat-label">Covered</div>
+            </div>
+            <div class="stat-card" style="padding:10px;">
+              <div class="stat-number" style="font-size:18px; color:var(--red);">${weak}</div>
+              <div class="stat-label">Weak</div>
+            </div>
+            <div class="stat-card" style="padding:10px;">
+              <div class="stat-number" style="font-size:18px; color:var(--green);">${strong}</div>
+              <div class="stat-label">Strong</div>
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Add Topic -->
+        <div class="card">
+          <div class="strat-section-label">Add Topic</div>
+          <div class="strat-settings-row">
+            <input type="text" id="topic-name-input" class="strat-settings-input" placeholder="Topic name" style="flex:1;"
+              onkeydown="if(event.key==='Enter')App.addTopic()">
+            <input type="text" id="topic-category-input" class="strat-settings-input" placeholder="Category" style="width:120px;">
+            <button class="btn btn-primary btn-sm" onclick="App.addTopic()">Add</button>
+          </div>
+          ${total === 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.loadTopicPreset()" style="margin-top:8px;">Load Ortho Exam Preset</button>` : ''}
+        </div>
+
+        <!-- Topics by Category -->
+        ${categories.map(cat => {
+          const catTopics = topics.filter(t => (t.category || 'Uncategorized') === cat);
+          return `
+            <div class="card">
+              <div class="strat-section-label">${escapeHTML(cat)} (${catTopics.length})</div>
+              <div class="topic-grid">
+                ${catTopics.map(t => `
+                  <div class="topic-item topic-${t.status}" onclick="App.cycleTopicStatus('${t.id}')">
+                    <div class="topic-status-dot" style="background:${statusColors[t.status]};"></div>
+                    <div class="topic-info">
+                      <div class="topic-name">${escapeHTML(t.name)}</div>
+                      <div class="topic-meta">${t.status.replace('-', ' ')}${t.lastStudied ? ' &middot; ' + t.lastStudied : ''}</div>
+                    </div>
+                    <button class="btn btn-ghost btn-sm topic-delete" onclick="event.stopPropagation(); App.deleteTopic('${t.id}')">&times;</button>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }).join('')}
+
+        ${total > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.loadTopicPreset()" style="margin-top:8px;">Load Preset (adds missing)</button>` : ''}
+      `;
+    }
+
+    return `
+      <h1 class="view-title">Strategy</h1>
+      <p class="view-subtitle">Exam \u00B7 Manuscript \u00B7 Scoliox \u2014 Your integrated plan</p>
+
+      <!-- Stat Cards -->
+      <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
+        <div class="stat-card" style="border-color:${STREAMS.exam.color}40;">
+          <div class="stat-number" style="color:${STREAMS.exam.color};">${daysLeft}</div>
+          <div class="stat-label">Days to Exam</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" style="color:var(--green);">${doneMs}/${totalMs}</div>
+          <div class="stat-label">Milestones</div>
+          <div class="progress-bar" style="margin-top:6px;">
+            <div class="progress-fill" style="width:${pct}%; background:${STREAMS.exam.color};"></div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div style="font-size:14px; font-weight:700; color:var(--text); margin-bottom:2px;">${phase}</div>
+          <div class="stat-label">Current Phase</div>
+          <div style="font-size:12px; color:${STREAMS.exam.color}; font-weight:600; margin-top:4px;">${curAlloc.exam}% \u2192 Exam</div>
+        </div>
+      </div>
+
+      <!-- Sub-Tabs -->
+      <div class="strat-tabs">
+        <span class="strat-tab ${tab==='roadmap'?'active':''}" onclick="App.setStrategyTab('roadmap')">Roadmap</span>
+        <span class="strat-tab ${tab==='weekly'?'active':''}" onclick="App.setStrategyTab('weekly')">Weekly</span>
+        <span class="strat-tab ${tab==='rules'?'active':''}" onclick="App.setStrategyTab('rules')">Rules</span>
+        <span class="strat-tab ${tab==='settings'?'active':''}" onclick="App.setStrategyTab('settings')">Settings</span>
+        <span class="strat-tab ${tab==='topics'?'active':''}" onclick="App.setStrategyTab('topics')">Topics</span>
+      </div>
+
+      ${tabContent}
+    `;
+  },
+
+  // ─── Vault ──────────────────────────────────
+  vault() {
+    const mode = App.vaultMode || 'browse';
+    const vaultPath = App.vaultPath || '';
+
+    if (mode === 'read' && App.vaultFile) {
+      return Views._vaultReader();
+    }
+    if (mode === 'edit' && App.vaultFile) {
+      return Views._vaultEditor();
+    }
+    return Views._vaultBrowser();
+  },
+
+  _vaultBrowser() {
+    const vaultPath = App.vaultPath || '';
+    const files = App.vaultFileList || [];
+    const searchQuery = App.vaultSearchQuery || '';
+    const searchResults = App.vaultSearchResults || [];
+    const isSearching = App.vaultIsSearching || false;
+
+    // Breadcrumb
+    const parts = vaultPath ? vaultPath.split('/') : [];
+    let breadcrumb = `<span class="vault-crumb" onclick="App.vaultNavigate('')">Vault</span>`;
+    let accumulated = '';
+    for (const p of parts) {
+      accumulated += (accumulated ? '/' : '') + p;
+      const safePath = accumulated.replace(/'/g, "\\'");
+      breadcrumb += ` <span class="vault-crumb-sep">/</span> <span class="vault-crumb" onclick="App.vaultNavigate('${safePath}')">${escapeHTML(p)}</span>`;
+    }
+
+    return `
+      <h1 class="view-title">Vault</h1>
+      <p class="view-subtitle">Your Obsidian knowledge base</p>
+
+      <div class="vault-toolbar">
+        <div class="vault-breadcrumb">${breadcrumb}</div>
+        <div class="vault-search-row">
+          <input type="text" id="vault-search" placeholder="Search vault..." value="${escapeHTML(searchQuery)}"
+            onkeydown="if(event.key==='Enter')App.vaultSearch()">
+          <button class="btn btn-primary btn-sm" onclick="App.vaultSearch()">Search</button>
+          <button class="btn btn-ghost btn-sm" onclick="App.vaultNewFile()">+ New</button>
+        </div>
+      </div>
+
+      ${isSearching && searchResults.length > 0 ? `
+        <div class="card" style="margin-bottom:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <div class="strat-section-label" style="margin-bottom:0;">Search Results (${searchResults.length})</div>
+            <button class="btn btn-ghost btn-sm" onclick="App.vaultClearSearch()">Clear</button>
+          </div>
+          <div class="item-list">
+            ${searchResults.map(r => `
+              <div class="item" style="cursor:pointer;" onclick="App.openVaultFile('${r.path.replace(/'/g, "\\'")}')">
+                <div class="item-body">
+                  <div class="item-title">${escapeHTML(r.name)}</div>
+                  <div class="item-meta">${r.matches.map(m => `Line ${m.line}: ${escapeHTML(m.text.slice(0, 80))}`).join(' | ')}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : isSearching ? '<div class="empty-state" style="padding:20px;"><div class="empty-text">No results found.</div></div>' : ''}
+
+      ${!isSearching ? `
+        ${files.length ? `
+          <div class="vault-file-grid">
+            ${files.map(f => {
+              const safePath = f.path.replace(/'/g, "\\'");
+              if (f.isFolder) {
+                return `
+                  <div class="vault-file-card vault-folder" onclick="App.vaultNavigate('${safePath}')">
+                    <div class="vault-file-icon">\uD83D\uDCC1</div>
+                    <div class="vault-file-name">${escapeHTML(f.name)}</div>
+                    <div class="vault-file-meta">${f.children} items</div>
+                  </div>`;
+              }
+              const sizeKB = f.size ? Math.round(f.size / 1024) : 0;
+              const modDate = f.modified ? new Date(f.modified).toLocaleDateString() : '';
+              return `
+                <div class="vault-file-card" onclick="App.openVaultFile('${safePath}')">
+                  <div class="vault-file-icon">\uD83D\uDCC4</div>
+                  <div class="vault-file-name">${escapeHTML(f.name.replace('.md', ''))}</div>
+                  <div class="vault-file-meta">${sizeKB}KB &middot; ${modDate}</div>
+                </div>`;
+            }).join('')}
+          </div>
+        ` : `
+          <div class="empty-state">
+            <div class="empty-icon">&#128218;</div>
+            <div class="empty-text">Loading vault...</div>
+          </div>
+        `}
+      ` : ''}
+    `;
+  },
+
+  _vaultReader() {
+    const file = App.vaultFile;
+    const content = App.vaultFileContent || '';
+    const rendered = renderMarkdown(content);
+
+    return `
+      <div class="vault-header">
+        <button class="btn btn-ghost btn-sm" onclick="App.vaultBack()">&larr; Back</button>
+        <h2 class="vault-file-title">${escapeHTML(file.replace('.md', '').split('/').pop())}</h2>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-ghost btn-sm" onclick="App.vaultEdit()">Edit</button>
+        </div>
+      </div>
+      <div class="vault-rendered card">${rendered}</div>
+    `;
+  },
+
+  _vaultEditor() {
+    const file = App.vaultFile;
+    const content = App.vaultFileContent || '';
+
+    return `
+      <div class="vault-header">
+        <button class="btn btn-ghost btn-sm" onclick="App.vaultCancelEdit()">&larr; Cancel</button>
+        <h2 class="vault-file-title">Editing: ${escapeHTML(file.split('/').pop())}</h2>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary btn-sm" onclick="App.vaultSave()">Save</button>
+        </div>
+      </div>
+      <textarea id="vault-editor-area" class="vault-editor-textarea">${escapeHTML(content)}</textarea>
+    `;
+  },
+
+  // ─── Growth ─────────────────────────────────
+  growth() {
+    const data = Store.get();
+    const g = App.growthData;
+    if (!g) {
+      return `
+        <h1 class="view-title">Growth</h1>
+        <p class="view-subtitle">Your evolution over time</p>
+        <div class="empty-state"><div class="empty-text">Loading growth data...</div></div>
+      `;
+    }
+
+    // Calendar heatmap (last 20 weeks)
+    const today = new Date();
+    const weeks = 20;
+    const startDate = new Date(today);
+    startDate.setDate(startDate.getDate() - (weeks * 7) + (7 - startDate.getDay()));
+    const loggingSet = new Set(g.loggingDays || []);
+
+    let heatmapHTML = '<div class="heatmap-grid">';
+    const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+    // Header
+    heatmapHTML += '<div class="heatmap-labels">';
+    for (const d of dayLabels) heatmapHTML += `<div class="heatmap-label">${d}</div>`;
+    heatmapHTML += '</div>';
+
+    for (let w = 0; w < weeks; w++) {
+      heatmapHTML += '<div class="heatmap-week">';
+      for (let d = 0; d < 7; d++) {
+        const cellDate = new Date(startDate);
+        cellDate.setDate(startDate.getDate() + w * 7 + d);
+        const dateStr = cellDate.toISOString().slice(0, 10);
+        const hasEntry = loggingSet.has(dateStr);
+        const isFuture = cellDate > today;
+        const level = isFuture ? 'future' : hasEntry ? 'active' : 'empty';
+        const title = `${dateStr}${hasEntry ? ' (logged)' : ''}`;
+        heatmapHTML += `<div class="heatmap-cell heatmap-${level}" title="${title}"></div>`;
+      }
+      heatmapHTML += '</div>';
+    }
+    heatmapHTML += '</div>';
+
+    // Knowledge areas
+    const areasHTML = (g.knowledgeAreas || []).map(a => {
+      const maxFiles = Math.max(...(g.knowledgeAreas || []).map(x => x.fileCount), 1);
+      const pct = Math.round((a.fileCount / maxFiles) * 100);
+      return `
+        <div style="margin-bottom:12px;">
+          <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;">
+            <span>${escapeHTML(a.area)}</span>
+            <span style="color:var(--text-dim);">${a.fileCount} files</span>
+          </div>
+          <div class="progress-bar" style="margin-top:0;">
+            <div class="progress-fill" style="width:${pct}%; background:var(--accent);"></div>
+          </div>
+        </div>`;
+    }).join('');
+
+    // Writing volume sparkline
+    const volumes = g.writingVolume || [];
+    const maxWords = Math.max(...volumes.map(v => v.words), 1);
+    const sparkHTML = volumes.slice(-8).map(v => {
+      const h = Math.max(4, Math.round((v.words / maxWords) * 60));
+      return `<div class="spark-bar" style="height:${h}px;" title="${v.month}: ${v.words} words"></div>`;
+    }).join('');
+
+    // Lessons timeline
+    const lessonsHTML = (g.lessons || []).slice(-8).reverse().map(l => `
+      <div class="lesson-item">
+        <div class="lesson-date">${l.date}</div>
+        <div class="lesson-text">${escapeHTML(l.text)}</div>
+      </div>
+    `).join('');
+
+    // Clinical cases
+    const cases = g.clinicalCases || [];
+    const maxCases = Math.max(...cases.map(c => c.count), 1);
+    const casesHTML = cases.slice(-8).map(c => {
+      const h = Math.max(4, Math.round((c.count / maxCases) * 60));
+      return `<div class="spark-bar spark-bar-green" style="height:${h}px;" title="${c.month}: ${c.count} cases"></div>`;
+    }).join('');
+
+    return `
+      <h1 class="view-title">Growth</h1>
+      <p class="view-subtitle">Your evolution over time</p>
+
+      <!-- Streak Stats -->
+      <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
+        <div class="stat-card">
+          <div class="stat-number" style="color:var(--amber);">${g.currentStreak || 0}</div>
+          <div class="stat-label">Current Streak</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">${g.longestStreak || 0}</div>
+          <div class="stat-label">Longest Streak</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" style="color:var(--green);">${g.loggingDays ? g.loggingDays.length : 0}</div>
+          <div class="stat-label">Days Logged</div>
+        </div>
+      </div>
+
+      <!-- Heatmap -->
+      <div class="card">
+        <div class="strat-section-label">Logging Activity (last ${weeks} weeks)</div>
+        ${heatmapHTML}
+      </div>
+
+      <!-- Study Time Stats -->
+      ${(() => {
+        const sessions = data.timer?.sessions || [];
+        if (!sessions.length) return '';
+        // Last 14 days of study time
+        const dayMap = {};
+        const now2 = new Date();
+        for (let i = 13; i >= 0; i--) {
+          const d = new Date(now2);
+          d.setDate(d.getDate() - i);
+          dayMap[d.toISOString().slice(0, 10)] = 0;
+        }
+        for (const s of sessions) {
+          if (s.date in dayMap) dayMap[s.date] += s.duration;
+        }
+        const days = Object.entries(dayMap);
+        const maxMin = Math.max(...days.map(d => d[1]), 1);
+        const totalWeek = sessions.filter(s => {
+          const d = new Date(s.date || s.ts);
+          return (now2 - d) < 7 * 864e5;
+        }).reduce((sum, s) => sum + s.duration, 0);
+        const totalAll = sessions.reduce((sum, s) => sum + s.duration, 0);
+
+        return `
+      <div class="card">
+        <div class="strat-section-label">Study Time</div>
+        <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom:12px;">
+          <div class="stat-card" style="padding:10px 8px;">
+            <div class="stat-number" style="font-size:18px;">${Math.round(totalWeek / 60)}h ${totalWeek % 60}m</div>
+            <div class="stat-label">This Week</div>
+          </div>
+          <div class="stat-card" style="padding:10px 8px;">
+            <div class="stat-number" style="font-size:18px;">${Math.round(totalAll / 60)}h ${totalAll % 60}m</div>
+            <div class="stat-label">All Time</div>
+          </div>
+          <div class="stat-card" style="padding:10px 8px;">
+            <div class="stat-number" style="font-size:18px;">${sessions.length}</div>
+            <div class="stat-label">Sessions</div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:flex-end; gap:3px; height:60px;">
+          ${days.map(([date, mins]) => {
+            const h = Math.max(2, Math.round((mins / maxMin) * 56));
+            const label = date.slice(5);
+            return `<div style="flex:1; display:flex; flex-direction:column; align-items:center;">
+              <div style="width:100%; height:${h}px; background:${mins > 0 ? 'var(--accent)' : 'var(--border)'}; border-radius:3px;" title="${date}: ${mins}min"></div>
+              <div style="font-size:9px; color:var(--text-dim); margin-top:2px;">${label}</div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+      })()}
+
+      <!-- Weekly Review -->
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="strat-section-label" style="margin:0;">Weekly Review</div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <label class="auto-export-toggle" title="Auto-export weekly review when you open Nexus on a new week">
+              <input type="checkbox" ${data.autoWeeklyExport ? 'checked' : ''} onchange="App.toggleAutoWeeklyExport()">
+              <span style="font-size:11px; color:var(--text-dim);">Auto</span>
+            </label>
+            ${App.weeklyReview ? `<button class="btn btn-ghost btn-sm" onclick="App.exportWeeklyReview()">Export to Vault</button>` : ''}
+            <button class="btn btn-primary btn-sm" onclick="App.generateWeeklyReview()">
+              ${App.weeklyReview ? 'Refresh' : 'Generate'}
+            </button>
+          </div>
+        </div>
+        ${App.weeklyReview ? (() => {
+          const wr = App.weeklyReview;
+          return `
+            <div class="weekly-review-content">
+              <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom:12px;">
+                <div class="stat-card" style="padding:12px 8px;">
+                  <div class="stat-number" style="font-size:20px;">${wr.daysLogged}/7</div>
+                  <div class="stat-label">Days Logged</div>
+                </div>
+                <div class="stat-card" style="padding:12px 8px;">
+                  <div class="stat-number" style="font-size:20px;">${wr.totalWords}</div>
+                  <div class="stat-label">Words Written</div>
+                </div>
+                <div class="stat-card" style="padding:12px 8px;">
+                  <div class="stat-number" style="font-size:20px;">${wr.tasksCompleted}</div>
+                  <div class="stat-label">Tasks Done</div>
+                </div>
+                <div class="stat-card" style="padding:12px 8px;">
+                  <div class="stat-number" style="font-size:20px;">${wr.topTags.length}</div>
+                  <div class="stat-label">Tags Used</div>
+                </div>
+              </div>
+              ${wr.mostActiveDay ? `<div style="font-size:12px; color:var(--text-dim); margin-bottom:8px;">Most active: ${wr.mostActiveDay} (${wr.mostActiveLines} lines)</div>` : ''}
+              ${wr.topTags.length > 0 ? `
+                <div style="margin-bottom:8px;">
+                  <span style="font-size:12px; color:var(--text-dim);">Top tags: </span>
+                  ${wr.topTags.map(t => `<span class="vault-tag vault-tag-sm">#${escapeHTML(t.tag)} <small>${t.count}</small></span>`).join(' ')}
+                </div>
+              ` : ''}
+              ${wr.lessons.length > 0 ? `
+                <div style="border-top:1px solid var(--border); padding-top:8px;">
+                  <div style="font-size:12px; font-weight:600; margin-bottom:4px;">Lessons this week</div>
+                  ${wr.lessons.map(l => `<div class="lesson-item" style="padding:4px 0;"><div class="lesson-date">${l.date}</div><div class="lesson-text">${escapeHTML(l.text)}</div></div>`).join('')}
+                </div>
+              ` : ''}
+            </div>`;
+        })() : '<div style="font-size:13px; color:var(--text-dim); padding:8px;">Click Generate to see your weekly summary.</div>'}
+        ${App.weeklyExportMsg ? `<div style="font-size:12px; color:var(--green); margin-top:8px;">${escapeHTML(App.weeklyExportMsg)}</div>` : ''}
+      </div>
+
+      <!-- Study Time + MCQ Performance -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <!-- Study Time -->
+        <div class="card">
+          <div class="strat-section-label">Study Time</div>
+          ${(() => {
+            const sessions = (Store.get().timer || {}).sessions || [];
+            const thisWeek = sessions.filter(s => {
+              const d = new Date(); d.setDate(d.getDate() - 7);
+              return s.date >= d.toISOString().slice(0, 10);
+            });
+            const weekMins = thisWeek.reduce((s, x) => s + (x.duration || 0), 0);
+            const totalMins = sessions.reduce((s, x) => s + (x.duration || 0), 0);
+            return `
+              <div class="stats-grid" style="grid-template-columns:1fr 1fr; margin-bottom:8px;">
+                <div class="stat-card" style="padding:10px;">
+                  <div class="stat-number" style="font-size:18px;">${Math.round(weekMins / 60 * 10) / 10}h</div>
+                  <div class="stat-label">This Week</div>
+                </div>
+                <div class="stat-card" style="padding:10px;">
+                  <div class="stat-number" style="font-size:18px;">${Math.round(totalMins / 60 * 10) / 10}h</div>
+                  <div class="stat-label">All Time</div>
+                </div>
+              </div>
+              <div style="font-size:12px; color:var(--text-dim);">${sessions.length} sessions total</div>
+            `;
+          })()}
+        </div>
+
+        <!-- MCQ Performance -->
+        <div class="card">
+          <div class="strat-section-label">MCQ Performance</div>
+          ${(() => {
+            const scores = Store.get().mcqScores || [];
+            if (scores.length === 0) return '<div style="font-size:12px; color:var(--text-dim);">No scores logged yet</div>';
+            const avg = Math.round(scores.reduce((s, x) => s + (x.score / x.total * 100), 0) / scores.length);
+            const totalQs = scores.reduce((s, x) => s + x.total, 0);
+            const recent = scores.slice(-10);
+            // SVG line chart
+            const chartW = 280, chartH = 60;
+            const points = recent.map((s, i) => {
+              const x = recent.length === 1 ? chartW / 2 : (i / (recent.length - 1)) * chartW;
+              const y = chartH - (s.score / s.total * chartH);
+              return `${x},${y}`;
+            }).join(' ');
+            return `
+              <div style="margin-bottom:8px;">
+                <svg viewBox="0 0 ${chartW} ${chartH}" width="100%" height="${chartH}" style="overflow:visible;">
+                  <polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  ${recent.map((s, i) => {
+                    const x = recent.length === 1 ? chartW / 2 : (i / (recent.length - 1)) * chartW;
+                    const y = chartH - (s.score / s.total * chartH);
+                    return '<circle cx="' + x + '" cy="' + y + '" r="3" fill="var(--accent)"><title>' + s.date + ': ' + s.score + '/' + s.total + ' (' + Math.round(s.score / s.total * 100) + '%)</title></circle>';
+                  }).join('')}
+                </svg>
+              </div>
+              <div style="font-size:12px; color:var(--text-dim);">Avg: ${avg}% &middot; ${totalQs} questions</div>
+            `;
+          })()}
+        </div>
+      </div>
+
+      <!-- MCQ Score Entry -->
+      <div class="card">
+        <div class="strat-section-label">Log MCQ Score</div>
+        <div class="mcq-entry-row">
+          <input type="date" id="mcq-date" class="strat-settings-input" value="${todayKey()}" style="width:130px;">
+          <input type="text" id="mcq-source" class="strat-settings-input" placeholder="Source (e.g. Apley Ch.5)" style="flex:1;">
+          <input type="number" id="mcq-score" class="strat-settings-input" placeholder="Score" style="width:70px;">
+          <span style="color:var(--text-dim); line-height:32px;">/</span>
+          <input type="number" id="mcq-total" class="strat-settings-input" placeholder="Total" style="width:70px;">
+          <button class="btn btn-primary btn-sm" onclick="App.addMcqScore()">Log</button>
+        </div>
+        ${(() => {
+          const scores = (Store.get().mcqScores || []).slice(-5).reverse();
+          if (scores.length === 0) return '';
+          return '<div style="margin-top:8px;">' + scores.map(s =>
+            '<div style="display:flex; justify-content:space-between; font-size:12px; padding:3px 0; color:var(--text-dim);">' +
+            '<span>' + s.date + (s.source ? ' — ' + escapeHTML(s.source) : '') + '</span>' +
+            '<span style="color:' + (s.score / s.total >= 0.7 ? 'var(--green)' : s.score / s.total >= 0.5 ? 'var(--amber)' : 'var(--red)') + ';">' + s.score + '/' + s.total + ' (' + Math.round(s.score / s.total * 100) + '%)</span>' +
+            '</div>'
+          ).join('') + '</div>';
+        })()}
+      </div>
+
+      <!-- Two column grid -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <!-- Writing Volume -->
+        <div class="card">
+          <div class="strat-section-label">Writing Volume (monthly)</div>
+          <div class="spark-row">${sparkHTML || '<span style="color:var(--text-dim); font-size:12px;">No data yet</span>'}</div>
+        </div>
+
+        <!-- Clinical Cases -->
+        <div class="card">
+          <div class="strat-section-label">Clinical Cases (monthly)</div>
+          <div class="spark-row">${casesHTML || '<span style="color:var(--text-dim); font-size:12px;">No data yet</span>'}</div>
+        </div>
+      </div>
+
+      <!-- Tag Trend Sparklines -->
+      <div class="card">
+        <div class="strat-section-label">Tag Trends (monthly)</div>
+        ${(() => {
+          const trends = g.tagTrends || {};
+          // Get all months across all tags, sorted
+          const allMonths = new Set();
+          for (const t of Object.values(trends)) {
+            for (const m of Object.keys(t)) allMonths.add(m);
+          }
+          const months = [...allMonths].sort().slice(-6);
+          if (months.length === 0) return '<div style="font-size:12px; color:var(--text-dim);">No tag data yet</div>';
+
+          // Top 8 tags by total usage
+          const topTags = Object.entries(trends)
+            .map(([tag, data]) => ({ tag, data, total: Object.values(data).reduce((s, v) => s + v, 0) }))
+            .sort((a, b) => b.total - a.total)
+            .slice(0, 8);
+
+          return topTags.map(({ tag, data }) => {
+            const values = months.map(m => data[m] || 0);
+            const max = Math.max(...values, 1);
+            const bars = values.map((v, i) => {
+              const h = Math.max(2, Math.round((v / max) * 28));
+              return '<div class="sparkline-bar" style="height:' + h + 'px;" title="' + months[i] + ': ' + v + '"></div>';
+            }).join('');
+            return '<div class="tag-trend-row"><span class="tag-trend-label">#' + escapeHTML(tag) + '</span><div class="tag-trend-sparkline">' + bars + '</div><span class="tag-trend-total">' + values.reduce((s, v) => s + v, 0) + '</span></div>';
+          }).join('');
+        })()}
+      </div>
+
+      <!-- Tag Explorer -->
+      <div class="card">
+        <div class="strat-section-label">Tag Explorer</div>
+        <div class="growth-tag-search">
+          <input type="text" id="growth-tag-input" placeholder="Search a tag (e.g. food, family, active)..."
+            value="${escapeHTML(App.growthTagFilter)}"
+            onkeydown="if(event.key==='Enter')App.searchGrowthTag()">
+          <button class="btn btn-primary btn-sm" onclick="App.searchGrowthTag()">Search</button>
+        </div>
+        <div class="growth-tag-pills">
+          ${Object.entries(g.tagTrends || {}).sort((a, b) => {
+            const aTotal = Object.values(a[1]).reduce((s, v) => s + v, 0);
+            const bTotal = Object.values(b[1]).reduce((s, v) => s + v, 0);
+            return bTotal - aTotal;
+          }).slice(0, 20).map(([tag]) =>
+            `<span class="vault-tag vault-tag-sm" onclick="App.searchGrowthTag('${tag}')" style="cursor:pointer;">#${escapeHTML(tag)}</span>`
+          ).join(' ')}
+        </div>
+        ${App.growthTagEntries ? `
+          <div class="growth-tag-results">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin:12px 0 8px;">
+              <span style="font-size:13px; font-weight:600; color:var(--accent);">#${escapeHTML(App.growthTagFilter)} — ${App.growthTagEntries.count} entries</span>
+              <button class="btn btn-ghost btn-sm" onclick="App.clearGrowthTag()">Clear</button>
+            </div>
+            ${App.growthTagEntries.entries.slice(0, 30).map(e => `
+              <div class="lesson-item">
+                <div class="lesson-date">${e.date}</div>
+                <div class="lesson-text">${escapeHTML(e.text)}</div>
+              </div>
+            `).join('')}
+            ${App.growthTagEntries.count > 30 ? `<div style="font-size:12px; color:var(--text-dim); padding:8px;">Showing 30 of ${App.growthTagEntries.count} entries</div>` : ''}
+          </div>
+        ` : ''}
+      </div>
+
+      <!-- Knowledge Areas -->
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="strat-section-label" style="margin-bottom:0;">Knowledge Areas</div>
+          <select class="growth-sort-select" onchange="App.setGrowthSort(this.value)">
+            <option value="files" ${App.growthSort === 'files' ? 'selected' : ''}>By File Count</option>
+            <option value="recent" ${App.growthSort === 'recent' ? 'selected' : ''}>By Last Updated</option>
+            <option value="name" ${App.growthSort === 'name' ? 'selected' : ''}>By Name</option>
+          </select>
+        </div>
+        ${(() => {
+          let areas = [...(g.knowledgeAreas || [])];
+          if (App.growthSort === 'recent') areas.sort((a, b) => (b.lastUpdated || '').localeCompare(a.lastUpdated || ''));
+          else if (App.growthSort === 'name') areas.sort((a, b) => a.area.localeCompare(b.area));
+          // else default: by fileCount (already sorted)
+          const maxFiles = Math.max(...areas.map(x => x.fileCount), 1);
+          return areas.map(a => {
+            const pct = Math.round((a.fileCount / maxFiles) * 100);
+            return '<div style="margin-bottom:12px;"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>' + escapeHTML(a.area) + '</span><span style="color:var(--text-dim);">' + a.fileCount + ' files' + (a.lastUpdated ? ' &middot; ' + a.lastUpdated : '') + '</span></div><div class="progress-bar" style="margin-top:0;"><div class="progress-fill" style="width:' + pct + '%;background:var(--accent);"></div></div></div>';
+          }).join('');
+        })() || '<span style="color:var(--text-dim); font-size:12px;">No data yet</span>'}
+      </div>
+
+      <!-- Lessons -->
+      <div class="card">
+        <div class="strat-section-label">Recent Lessons</div>
+        ${lessonsHTML || '<div class="empty-state" style="padding:16px;"><div class="empty-text">No #lesson entries found in vault</div></div>'}
+      </div>
+    `;
+  },
+
+  // ─── Focus Mode View ──────────────────────────
+  focus() {
+    const data = Store.get();
+    const ts = App.timerState || {};
+    let timerDisplay, timerPct;
+    if (ts.mode === 'stopwatch') {
+      const e = ts.elapsed || 0;
+      const h = Math.floor(e / 3600);
+      const m = Math.floor((e % 3600) / 60);
+      const s = e % 60;
+      timerDisplay = h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      timerPct = (e % 60) / 60 * 100;
+    } else {
+      const timerMins = Math.floor((ts.seconds || 0) / 60);
+      const timerSecs = (ts.seconds || 0) % 60;
+      timerDisplay = `${String(timerMins).padStart(2, '0')}:${String(timerSecs).padStart(2, '0')}`;
+      timerPct = ts.total ? Math.round(((ts.total - (ts.seconds || 0)) / ts.total) * 100) : 0;
+    }
+
+    // Open tasks
+    const openTasks = data.tasks.filter(t => !t.done).slice(-10).reverse();
+    const vt = App.vaultTasks;
+    let activeTasks = [];
+    if (vt) {
+      activeTasks = [...(vt.active || []), ...(vt.exam || [])].filter(t => !t.done).slice(0, 10);
+    }
+
+    function miniTaskItem(t, isVault) {
+      const todayDate = todayKey();
+      const safeSource = isVault && t.source ? t.source.replace(/'/g, "\\'") : '';
+      const check = isVault
+        ? `<div class="item-check ${t.done ? 'done' : ''}" onclick="App.toggleVaultTask('${safeSource}', ${t.line})"></div>`
+        : `<div class="item-check ${t.done ? 'done' : ''}" onclick="App.toggleTask('${t.id}')"></div>`;
+      return `<div class="item">${check}<div class="item-body"><div class="item-title">${escapeHTML(t.text)}</div></div></div>`;
+    }
+
+    return `
+      <div class="focus-header">
+        <h2>Focus Mode</h2>
+        <button class="btn btn-ghost btn-sm" onclick="App.toggleFocusMode()">Exit Focus</button>
+      </div>
+
+      <!-- Timer -->
+      <div class="card timer-card" style="max-width:400px; margin:0 auto;">
+        <div class="timer-display">
+          <div class="timer-progress-ring">
+            <svg viewBox="0 0 100 100" width="160" height="160">
+              <circle cx="50" cy="50" r="44" fill="none" stroke="var(--border)" stroke-width="6"/>
+              <circle cx="50" cy="50" r="44" fill="none" stroke="${ts.mode === 'stopwatch' ? '#4ecdc4' : 'var(--accent)'}" stroke-width="6"
+                stroke-dasharray="${2 * Math.PI * 44}" stroke-dashoffset="${2 * Math.PI * 44 * (1 - timerPct / 100)}"
+                transform="rotate(-90 50 50)" stroke-linecap="round" style="transition: stroke-dashoffset 0.5s"/>
+            </svg>
+            <div class="timer-time" style="font-size:32px;">${timerDisplay}</div>
+          </div>
+        </div>
+        <div class="timer-controls">
+          ${ts.completed ? `
+            <div style="text-align:center; margin-bottom:8px; color:var(--accent); font-weight:600;">✓ ${ts.completedDuration}min ${ts.completedType} done!</div>
+            <input type="text" id="timer-note" class="strat-settings-input" placeholder="What did you study? (optional)" style="margin-bottom:8px; width:100%;">
+            <button class="btn btn-primary" onclick="App.timerLogToCapture()">Log to Capture</button>
+            <button class="btn btn-ghost" onclick="App.timerDismiss()">Dismiss</button>
+          ` : ts.running ? `
+            <button class="btn btn-ghost" onclick="App.pauseTimer()">Pause</button>
+            ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary" onclick="App.stopTimer()">Stop</button>` : ''}
+            <button class="btn btn-ghost" onclick="App.resetTimer()">Reset</button>
+          ` : (ts.seconds > 0 || ts.mode === 'stopwatch') ? `
+            <button class="btn btn-primary" onclick="App.resumeTimer()">Resume</button>
+            ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary" onclick="App.stopTimer()">Stop</button>` : ''}
+            <button class="btn btn-ghost" onclick="App.resetTimer()">Reset</button>
+          ` : `
+            <div class="timer-presets">
+              <button class="btn btn-primary" onclick="App.startTimer(25, 'Pomodoro')">25 min</button>
+              <button class="btn btn-ghost" onclick="App.startTimer(45, 'Deep Work')">45 min</button>
+              <button class="btn btn-ghost" onclick="App.startTimer(15, 'Short')">15 min</button>
+            </div>
+            <div class="timer-custom-row">
+              <input type="number" id="timer-custom-min" placeholder="Min" min="1" max="999" class="timer-custom-input"
+                onkeydown="if(event.key==='Enter'){App.startCustomTimer(); event.preventDefault();}">
+              <button class="btn btn-ghost" onclick="App.startCustomTimer()">Start</button>
+              <button class="btn btn-ghost" onclick="App.startTimer(0, 'Stopwatch', 'stopwatch')" title="Count up">⏱ Stopwatch</button>
+            </div>
+          `}
+        </div>
+        ${ts.type && !ts.completed ? `<div style="font-size:11px; color:var(--text-dim); text-align:center; margin-top:4px;">${ts.type}${ts.mode === 'stopwatch' ? ' (counting up)' : ''}</div>` : ''}
+      </div>
+
+      <!-- Quick Add -->
+      <div class="today-quick-add" style="max-width:400px; margin:16px auto;">
+        <input type="text" id="today-quick-input" placeholder="Quick capture..."
+          onkeydown="if(event.key==='Enter'){App.todayQuickAdd(); event.preventDefault();}">
+        <button class="btn btn-primary btn-sm" onclick="App.todayQuickAdd()">Add</button>
+      </div>
+
+      <!-- Tasks -->
+      <div class="card" style="max-width:500px; margin:0 auto;">
+        <div class="strat-section-label">Tasks</div>
+        <div class="item-list">
+          ${openTasks.map(t => miniTaskItem(t, false)).join('')}
+          ${activeTasks.map(t => miniTaskItem(t, true)).join('')}
+          ${!openTasks.length && !activeTasks.length ? '<div style="font-size:13px; color:var(--text-dim); padding:8px;">All clear!</div>' : ''}
+        </div>
+      </div>
+    `;
+  },
+
+  // ─── Search ──────────────────────────────────
+  search() {
+    const q = (App.searchQuery || '').toLowerCase();
+    const data = Store.get();
+    let results = [];
+
+    if (q.length >= 2) {
+      // Search captures
+      for (const c of data.captures) {
+        if (c.text.toLowerCase().includes(q)) {
+          results.push({ type: 'Capture', text: c.text, date: c.created, id: c.id });
+        }
+      }
+      // Search tasks
+      for (const t of data.tasks) {
+        if (t.text.toLowerCase().includes(q)) {
+          results.push({ type: 'Task', text: t.text, date: t.created, done: t.done });
+        }
+      }
+      // Search journal
+      for (const j of data.journal) {
+        if (j.text.toLowerCase().includes(q)) {
+          results.push({ type: 'Journal', text: j.text, date: j.created });
+        }
+      }
+      // Search goals
+      for (const g of data.goals) {
+        if (g.text.toLowerCase().includes(q)) {
+          results.push({ type: 'Goal', text: g.text, date: g.created });
+        }
+      }
+      // Sort by date (newest first)
+      results.sort((a, b) => (b.date || 0) - (a.date || 0));
+    }
+
+    return `
+      <h1 class="view-title">Search</h1>
+      <p class="view-subtitle">Find anything across captures, tasks, journal, goals</p>
+
+      <div class="today-quick-add" style="margin-bottom:20px;">
+        <input type="text" id="search-input" placeholder="Type to search... (min 2 chars)"
+          value="${escapeHTML(App.searchQuery || '')}"
+          oninput="App.searchQuery=this.value; App.render();"
+          onkeydown="if(event.key==='Escape'){this.value=''; App.searchQuery=''; App.render();}">
+      </div>
+
+      ${q.length >= 2 ? `
+        <div style="font-size:12px; color:var(--text-dim); margin-bottom:12px;">${results.length} result${results.length !== 1 ? 's' : ''} for "${escapeHTML(q)}"</div>
+        ${results.length ? `
+          <div class="item-list">
+            ${results.slice(0, 50).map(r => `
+              <div class="item" style="border-left:3px solid ${r.type === 'Capture' ? 'var(--accent)' : r.type === 'Task' ? 'var(--green)' : r.type === 'Journal' ? 'var(--amber)' : '#888'}; padding-left:12px;">
+                <div class="item-body">
+                  <div class="item-title">${escapeHTML(r.text)}</div>
+                  <div class="item-meta">
+                    <span class="search-type-badge">${r.type}</span>
+                    ${r.date ? timeAgo(r.date) : ''}
+                    ${r.done ? ' (done)' : ''}
+                  </div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        ` : '<div class="empty-state"><div class="empty-text">No results found.</div></div>'}
+      ` : '<div class="empty-state"><div class="empty-text">Start typing to search...</div></div>'}
+    `;
+  },
+
+  // ─── Shortcuts (Help Page) ──────────────────
+  shortcuts() {
+    const data = Store.get();
+    const customTags = data.weeklyReviewTags || ['lesson', 'people', 'food'];
+
+    return `
+      <h1 class="view-title">Shortcuts & Guide</h1>
+      <p class="view-subtitle">How to use Nexus</p>
+
+      <div class="card">
+        <div class="strat-section-label">Keyboard Shortcuts</div>
+        <div class="shortcuts-grid">
+          <div class="shortcut-row"><span>Dashboard</span><span class="shortcut-key">D</span></div>
+          <div class="shortcut-row"><span>Today</span><span class="shortcut-key">Y</span></div>
+          <div class="shortcut-row"><span>Capture</span><span class="shortcut-key">C</span></div>
+          <div class="shortcut-row"><span>Tasks</span><span class="shortcut-key">T</span></div>
+          <div class="shortcut-row"><span>Journal</span><span class="shortcut-key">J</span></div>
+          <div class="shortcut-row"><span>Goals</span><span class="shortcut-key">G</span></div>
+          <div class="shortcut-row"><span>Vault</span><span class="shortcut-key">V</span></div>
+          <div class="shortcut-row"><span>Vault Search</span><span class="shortcut-key">/</span></div>
+          <div class="shortcut-row"><span>Focus Mode</span><span class="shortcut-key">F</span></div>
+          <div class="shortcut-row"><span>Search</span><span class="shortcut-key">S</span></div>
+          <div class="shortcut-row"><span>Shortcut Help</span><span class="shortcut-key">?</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="strat-section-label">How It Works</div>
+        <div style="font-size:13px; color:var(--text-dim); line-height:1.8;">
+          <p><strong>Dashboard</strong> — Overview of your progress, exam countdown, recent captures.</p>
+          <p><strong>Today</strong> — Daily view with study timer, habits, tasks, and schedule.</p>
+          <p><strong>Capture</strong> — Quick thoughts and ideas. Saved to app + Obsidian vault.</p>
+          <p><strong>Tasks</strong> — To-do list. Vault tasks sync from your Obsidian files.</p>
+          <p><strong>Journal</strong> — Quick daily log for recording what happened today. Feeds into streaks and weekly reviews.</p>
+          <p><strong>Goals</strong> — Track long-term goals and milestones.</p>
+          <p><strong>Vault</strong> — Browse and search your Obsidian vault files.</p>
+          <p><strong>Growth</strong> — Stats, streaks, heatmap, and weekly review export.</p>
+          <p><strong>Strategy</strong> — Exam roadmap, monthly allocations, topics, MCQ tracker.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="strat-section-label">Study Timer</div>
+        <div style="font-size:13px; color:var(--text-dim); line-height:1.8;">
+          <p><strong>Presets:</strong> 25m (Pomodoro), 45m (Deep Work), 15m (Short Break)</p>
+          <p><strong>Custom:</strong> Type any number of minutes and click Start.</p>
+          <p><strong>Stopwatch:</strong> Counts up — press Stop when done.</p>
+          <p>After completing a session, you can <strong>Log to Capture</strong> to save it.</p>
+          <p>A browser notification will alert you when a countdown finishes.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="strat-section-label">Tags in Captures</div>
+        <div style="font-size:13px; color:var(--text-dim); line-height:1.8;">
+          <p>Use <code>#tags</code> in your captures to categorize them.</p>
+          <p>Examples: <code>#idea</code>, <code>#todo</code>, <code>#exam</code>, <code>#review</code></p>
+          <p>Filter captures by clicking on tag badges in the Capture view.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="strat-section-label">Journal / Daily Log</div>
+        <div style="font-size:13px; color:var(--text-dim); line-height:1.8;">
+          <p>The Journal is a <strong>quick daily log</strong> — write short bullets about what you did, learned, or noticed today.</p>
+          <p>Keep it simple: one line per thought. Use <code>#tags</code> like <code>#lesson</code>, <code>#people</code>, <code>#food</code> so they appear in your weekly review.</p>
+          <p>Your entries automatically count toward <strong>streaks</strong> and <strong>Growth stats</strong> (days logged, words written).</p>
+          <p>If connected to Obsidian, entries sync to your <strong>Rapid Log</strong> — open them in Obsidian for richer editing (headings, checkboxes, links).</p>
+          <p style="color:var(--accent);">Tip: Use Nexus for quick logging, Obsidian for deep journaling.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="strat-section-label">Weekly Review — Custom Tags</div>
+        <div style="font-size:13px; color:var(--text-dim); margin-bottom:8px;">
+          Tags below get their own section in the weekly review export. Uses entries from your Rapid Log that contain these #tags.
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
+          ${customTags.map(t => `
+            <span class="tag-badge" style="display:inline-flex; align-items:center; gap:4px;">
+              #${escapeHTML(t)}
+              <button class="item-delete" style="position:static; font-size:14px; padding:0 2px;" onclick="App.removeWeeklyTag('${t}')">&times;</button>
+            </span>
+          `).join('')}
+        </div>
+        <div class="strat-settings-row">
+          <input type="text" id="weekly-tag-input" class="strat-settings-input" placeholder="Add tag (without #)" style="flex:1;"
+            onkeydown="if(event.key==='Enter')App.addWeeklyTag()">
+          <button class="btn btn-primary btn-sm" onclick="App.addWeeklyTag()">Add</button>
+        </div>
+      </div>
+    `;
+  }
+};
+
+// ── App Controller ─────────────────────────────────
+const App = {
+  currentView: 'dashboard',
+  taskFilter: 'all',
+  strategyMonth: 'feb',
+  strategyTab: 'roadmap',
+
+  // Vault state
+  vaultMode: 'browse',
+  vaultPath: '',
+  vaultFile: null,
+  vaultFileContent: '',
+  vaultFileList: [],
+  vaultSearchQuery: '',
+  vaultSearchResults: [],
+  vaultIsSearching: false,
+
+  // Cached data
+  vaultStats: null,
+  vaultSuggestions: null,
+  growthData: null,
+  vaultTasks: null,
+  vaultDailyEntries: [],
+  vaultAvailable: false,
+  vaultTaskTab: 'active',
+  growthTagFilter: '',
+  growthTagEntries: null,
+  growthSort: 'recent',
+  weeklyReview: null,
+  showShortcutHelp: false,
+
+  async init() {
+    // Load data from server before anything else
+    await Store.init();
+    // Request notification permission for timer
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+    updateStreak();
+    // Apply saved theme
+    const savedTheme = Store.get().theme || 'dark';
+    if (savedTheme === 'light') document.body.classList.add('light');
+    this.bindNav();
+    this.bindExport();
+    this.render();
+    // Pre-fetch vault data in background
+    try {
+      const [stats, suggestions, growth, vaultTasks] = await Promise.all([
+        VaultAPI.getStats().catch(() => null),
+        VaultAPI.getSuggestions().catch(() => null),
+        VaultAPI.getGrowth().catch(() => null),
+        VaultAPI.getTasks().catch(() => null),
+      ]);
+      this.vaultStats = stats;
+      this.vaultSuggestions = suggestions;
+      this.growthData = growth;
+      this.vaultTasks = vaultTasks;
+      this.vaultAvailable = !!stats;
+      // Re-render to show vault data
+      this.render();
+      // Auto weekly export check
+      this.checkAutoWeeklyExport();
+    } catch { this.vaultAvailable = false; }
+  },
+
+  checkAutoWeeklyExport() {
+    const data = Store.get();
+    if (!data.autoWeeklyExport || !this.vaultAvailable) return;
+    // Get current ISO week string
+    const now = new Date();
+    const jan1 = new Date(now.getFullYear(), 0, 1);
+    const weekNum = Math.ceil(((now - jan1) / 864e5 + jan1.getDay() + 1) / 7);
+    const currentWeek = `${now.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+    // Only export if we haven't already exported this week
+    if (data.lastWeeklyExport === currentWeek) return;
+    // Only export if it's a new week (not the very first time)
+    // Export the previous week's review
+    console.log(`[Nexus] Auto-exporting weekly review for ${currentWeek}`);
+    const customTags = Store.get().weeklyReviewTags || ['lesson', 'people', 'food'];
+    fetch('/api/vault/weekly-review/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customTags })
+    })
+      .then(r => r.json())
+      .then(res => {
+        if (res.success) {
+          Store.update(d => d.lastWeeklyExport = currentWeek);
+          console.log(`[Nexus] Weekly review exported to ${res.file}`);
+        }
+      })
+      .catch(() => {});
+  },
+
+  toggleAutoWeeklyExport() {
+    const data = Store.get();
+    Store.update(d => d.autoWeeklyExport = !d.autoWeeklyExport);
+    this.render();
+  },
+
+  bindNav() {
+    document.querySelectorAll('#nav-links li').forEach(li => {
+      li.addEventListener('click', () => {
+        this.currentView = li.dataset.view;
+        document.querySelectorAll('#nav-links li').forEach(l => l.classList.remove('active'));
+        li.classList.add('active');
+        // Load vault files when entering vault view
+        if (li.dataset.view === 'vault' && this.vaultMode === 'browse') {
+          this.render();
+          this.vaultNavigate(this.vaultPath);
+        } else if (li.dataset.view === 'growth' && !this.growthData) {
+          this.render();
+          VaultAPI.getGrowth().then(data => { this.growthData = data; this.render(); }).catch(() => {});
+        } else if (li.dataset.view === 'journal' || li.dataset.view === 'today') {
+          this.render();
+          this.loadVaultDailyEntries();
+        } else {
+          this.render();
+        }
+      });
+    });
+  },
+
+  bindExport() {
+    document.getElementById('export-btn').addEventListener('click', () => Store.exportJSON());
+    document.getElementById('import-btn').addEventListener('click', () => {
+      document.getElementById('import-file').click();
+    });
+    document.getElementById('import-file').addEventListener('change', (e) => {
+      if (e.target.files[0]) Store.importJSON(e.target.files[0]);
+    });
+  },
+
+  render() {
+    // Focus mode: render focus view directly
+    if (this.focusMode) {
+      let html = Views.focus();
+      document.getElementById('content').innerHTML = html;
+      return;
+    }
+    const view = Views[this.currentView];
+    if (view) {
+      let html = view();
+
+      // FAB (floating quick-add) — shown on all views except capture
+      if (this.currentView !== 'capture') {
+        html += `
+          <div class="fab-container ${this.fabExpanded ? 'fab-open' : ''}">
+            ${this.fabExpanded ? `
+              <div class="fab-input-row">
+                <input type="text" id="fab-input" class="fab-text-input" placeholder="Quick capture..."
+                  onkeydown="if(event.key==='Enter'){App.fabAdd();event.preventDefault();} if(event.key==='Escape'){App.fabExpanded=false;App.render();}">
+                <button class="btn btn-primary btn-sm" onclick="App.fabAdd()">Add</button>
+              </div>
+            ` : ''}
+            <button class="fab-btn" onclick="App.toggleFab()" title="Quick capture">
+              ${this.fabExpanded ? '&times;' : '+'}
+            </button>
+          </div>
+        `;
+      }
+
+      if (this.showShortcutHelp) {
+        html += `
+          <div class="shortcut-help-overlay" onclick="App.showShortcutHelp=false; App.render();">
+            <div class="shortcut-help-card" onclick="event.stopPropagation()">
+              <h3>Keyboard Shortcuts</h3>
+              <div class="shortcut-row"><span>Dashboard</span><span class="shortcut-key">D</span></div>
+              <div class="shortcut-row"><span>Today</span><span class="shortcut-key">Y</span></div>
+              <div class="shortcut-row"><span>Capture</span><span class="shortcut-key">C</span></div>
+              <div class="shortcut-row"><span>Tasks</span><span class="shortcut-key">T</span></div>
+              <div class="shortcut-row"><span>Journal</span><span class="shortcut-key">J</span></div>
+              <div class="shortcut-row"><span>Goals</span><span class="shortcut-key">G</span></div>
+              <div class="shortcut-row"><span>Vault Search</span><span class="shortcut-key">/</span></div>
+              <div class="shortcut-row"><span>Vault</span><span class="shortcut-key">V</span></div>
+              <div class="shortcut-row"><span>Focus Mode</span><span class="shortcut-key">F</span></div>
+              <div class="shortcut-row"><span>This Help</span><span class="shortcut-key">?</span></div>
+              <div style="text-align:center; margin-top:16px;">
+                <button class="btn btn-ghost btn-sm" onclick="App.showShortcutHelp=false; App.render();">Close</button>
+              </div>
+            </div>
+          </div>`;
+      }
+      document.getElementById('content').innerHTML = html;
+
+      // Auto-focus FAB input when expanded
+      if (this.fabExpanded) {
+        setTimeout(() => document.getElementById('fab-input')?.focus(), 50);
+      }
+    }
+  },
+
+  // ─── Capture Actions ──────────────────────────
+  deleteCapture(id) {
+    Store.update(d => d.captures = d.captures.filter(c => c.id !== id));
+    this.render();
+  },
+
+  // ─── Task Actions ─────────────────────────────
+  addTask() {
+    const input = document.getElementById('task-input');
+    const catInput = document.getElementById('task-category');
+    const text = input.value.trim();
+    if (!text) return;
+    const category = catInput.value.trim();
+    Store.update(d => d.tasks.push({ id: uid(), text, category, done: false, created: Date.now() }));
+    this.render();
+  },
+
+  toggleTask(id) {
+    Store.update(d => {
+      const task = d.tasks.find(t => t.id === id);
+      if (task) task.done = !task.done;
+    });
+    this.render();
+  },
+
+  deleteTask(id) {
+    Store.update(d => d.tasks = d.tasks.filter(t => t.id !== id));
+    this.render();
+  },
+
+  setTaskFilter(f) {
+    this.taskFilter = f;
+    this.render();
+  },
+
+  setVaultTaskTab(tab) {
+    this.vaultTaskTab = tab;
+    this.render();
+  },
+
+  async toggleVaultTask(source, line) {
+    try {
+      await VaultAPI.toggleTask(source, line);
+      // Refresh vault tasks
+      this.vaultTasks = await VaultAPI.getTasks();
+      this.render();
+    } catch (err) {
+      alert('Could not toggle task: ' + (err.message || 'Error'));
+    }
+  },
+
+  // ─── Journal Actions ──────────────────────────
+  async loadVaultDailyEntries() {
+    if (!this.vaultAvailable) return;
+    try {
+      // Load last 10 days of entries
+      const today = new Date();
+      const entries = [];
+      for (let i = 0; i < 10; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().slice(0, 10);
+        const data = await VaultAPI.getDaily(dateStr);
+        if (data.found && data.lines.length > 0) {
+          entries.push({ date: data.date, lines: data.lines });
+        }
+      }
+      this.vaultDailyEntries = entries;
+      if (this.currentView === 'journal' || this.currentView === 'today') this.render();
+    } catch {}
+  },
+
+  addJournal() {
+    const input = document.getElementById('journal-input');
+    const text = input.value.trim();
+    if (!text) return;
+    updateStreak();
+    Store.update(d => d.journal.push({ id: uid(), text, created: Date.now() }));
+    // Bridge to vault if toggle is on
+    const toggle = document.getElementById('journal-vault-toggle');
+    if (toggle && toggle.checked) {
+      VaultAPI.addDaily(text).then(() => this.loadVaultDailyEntries()).catch(() => {});
+    }
+    this.render();
+  },
+
+  deleteJournal(id) {
+    Store.update(d => d.journal = d.journal.filter(j => j.id !== id));
+    this.render();
+  },
+
+  // ─── Goal Actions ─────────────────────────────
+  addGoal() {
+    const input = document.getElementById('goal-input');
+    const targetInput = document.getElementById('goal-target');
+    const text = input.value.trim();
+    const target = parseInt(targetInput.value) || 10;
+    if (!text) return;
+    Store.update(d => d.goals.push({ id: uid(), text, target, current: 0, created: Date.now() }));
+    this.render();
+  },
+
+  incrementGoal(id, amount) {
+    Store.update(d => {
+      const goal = d.goals.find(g => g.id === id);
+      if (goal) goal.current = Math.max(0, goal.current + amount);
+    });
+    this.render();
+  },
+
+  deleteGoal(id) {
+    Store.update(d => d.goals = d.goals.filter(g => g.id !== id));
+    this.render();
+  },
+
+  // ─── Strategy Actions ──────────────────────────
+  setStrategyMonth(m) {
+    this.strategyMonth = m;
+    this.render();
+  },
+
+  setStrategyTab(t) {
+    this.strategyTab = t;
+    this.render();
+  },
+
+  showStrategyAddForm() {
+    const form = document.getElementById('strat-add-form');
+    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  },
+
+  addStrategyMilestone() {
+    const text = document.getElementById('strat-ms-text').value.trim();
+    if (!text) return;
+    const stream = document.getElementById('strat-ms-stream').value;
+    const priority = document.getElementById('strat-ms-priority').value;
+    const month = this.strategyMonth;
+    Store.update(d => {
+      if (!d.strategy.milestones[month]) d.strategy.milestones[month] = [];
+      d.strategy.milestones[month].push({ id: uid(), stream, text, priority, done: false });
+    });
+    this.render();
+  },
+
+  toggleStrategyMilestone(month, idx) {
+    Store.update(d => {
+      const ms = d.strategy.milestones[month];
+      if (ms && ms[idx]) ms[idx].done = !ms[idx].done;
+    });
+    this.render();
+  },
+
+  deleteStrategyMilestone(month, idx) {
+    Store.update(d => {
+      if (d.strategy.milestones[month]) {
+        d.strategy.milestones[month].splice(idx, 1);
+      }
+    });
+    this.render();
+  },
+
+  saveStrategyNote(month, text) {
+    Store.update(d => {
+      d.strategy.notes[month] = text;
+    });
+  },
+
+  saveExamDate() {
+    const input = document.getElementById('settings-exam-date');
+    if (!input || !input.value) return;
+    Store.update(d => {
+      d.strategy.examDate = input.value;
+    });
+    this.render();
+  },
+
+  saveSchedule() {
+    const rows = document.querySelectorAll('#schedule-editor .strat-settings-row');
+    const schedule = [];
+    rows.forEach(row => {
+      const time = row.querySelector('.sched-time')?.value.trim();
+      const activity = row.querySelector('.sched-activity')?.value.trim();
+      const stream = row.querySelector('.sched-stream')?.value || null;
+      if (time && activity) {
+        schedule.push({ time, activity, stream: stream || null });
+      }
+    });
+    Store.update(d => {
+      d.strategy.schedule = schedule;
+    });
+    this.render();
+  },
+
+  addScheduleSlot() {
+    const editor = document.getElementById('schedule-editor');
+    if (!editor) return;
+    const idx = editor.children.length;
+    const row = document.createElement('div');
+    row.className = 'strat-settings-row';
+    row.dataset.slot = idx;
+    row.innerHTML = `
+      <input type="text" class="strat-settings-input sched-time" placeholder="Time" style="width:100px;">
+      <input type="text" class="strat-settings-input sched-activity" placeholder="Activity" style="flex:1;">
+      <select class="strat-settings-select sched-stream">
+        <option value="" selected>None</option>
+        <option value="exam">Exam</option>
+        <option value="flex">Flex</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="App.removeScheduleSlot(${idx})" title="Remove">&times;</button>
+    `;
+    editor.appendChild(row);
+  },
+
+  removeScheduleSlot(idx) {
+    const rows = document.querySelectorAll('#schedule-editor .strat-settings-row');
+    if (rows[idx]) rows[idx].remove();
+  },
+
+  resetSchedule() {
+    Store.update(d => {
+      d.strategy.schedule = [...WEEKLY_TEMPLATE];
+    });
+    this.render();
+  },
+
+  // ─── Growth Actions ─────────────────────────
+  async searchGrowthTag(tag) {
+    if (tag) {
+      this.growthTagFilter = tag;
+    } else {
+      const input = document.getElementById('growth-tag-input');
+      this.growthTagFilter = input ? input.value.trim() : '';
+    }
+    if (!this.growthTagFilter) return;
+    try {
+      this.growthTagEntries = await VaultAPI.getTagEntries(this.growthTagFilter);
+      this.render();
+    } catch {}
+  },
+
+  clearGrowthTag() {
+    this.growthTagFilter = '';
+    this.growthTagEntries = null;
+    this.render();
+  },
+
+  setGrowthSort(sort) {
+    this.growthSort = sort;
+    this.render();
+  },
+
+  async generateWeeklyReview() {
+    try {
+      this.weeklyReview = await VaultAPI.getWeeklyReview();
+      this.render();
+    } catch (err) {
+      alert('Could not generate review: ' + (err.message || 'Error'));
+    }
+  },
+
+  // ─── Vault Actions ──────────────────────────
+  async vaultNavigate(p) {
+    this.vaultPath = p;
+    this.vaultMode = 'browse';
+    this.vaultFile = null;
+    this.vaultIsSearching = false;
+    this.vaultSearchResults = [];
+    this.render();
+    try {
+      const data = await VaultAPI.listFiles(p);
+      this.vaultFileList = data.files || [];
+      this.render();
+    } catch {
+      this.vaultFileList = [];
+      this.render();
+    }
+  },
+
+  async openVaultFile(p) {
+    // Add .md extension if missing
+    if (!p.endsWith('.md')) p = p + '.md';
+    this.currentView = 'vault';
+    this.vaultMode = 'read';
+    this.vaultFile = p;
+    document.querySelectorAll('#nav-links li').forEach(l => {
+      l.classList.toggle('active', l.dataset.view === 'vault');
+    });
+    this.render();
+    try {
+      const data = await VaultAPI.readFile(p);
+      this.vaultFileContent = data.content || '';
+      this.render();
+    } catch {
+      this.vaultFileContent = '> Error loading file.';
+      this.render();
+    }
+  },
+
+  vaultEdit() {
+    this.vaultMode = 'edit';
+    this.render();
+  },
+
+  vaultCancelEdit() {
+    this.vaultMode = 'read';
+    this.render();
+  },
+
+  async vaultSave() {
+    const textarea = document.getElementById('vault-editor-area');
+    if (!textarea || !this.vaultFile) return;
+    const content = textarea.value;
+    try {
+      await VaultAPI.saveFile(this.vaultFile, content);
+      this.vaultFileContent = content;
+      this.vaultMode = 'read';
+      this.render();
+    } catch (err) {
+      alert('Save failed: ' + err.message);
+    }
+  },
+
+  vaultBack() {
+    this.vaultMode = 'browse';
+    this.vaultFile = null;
+    this.render();
+  },
+
+  async vaultSearch() {
+    const input = document.getElementById('vault-search');
+    const q = input ? input.value.trim() : '';
+    if (!q) return;
+    this.vaultSearchQuery = q;
+    this.vaultIsSearching = true;
+    this.render();
+    try {
+      const data = await VaultAPI.search(q);
+      this.vaultSearchResults = data.results || [];
+      this.render();
+    } catch {
+      this.vaultSearchResults = [];
+      this.render();
+    }
+  },
+
+  vaultClearSearch() {
+    this.vaultSearchQuery = '';
+    this.vaultIsSearching = false;
+    this.vaultSearchResults = [];
+    this.render();
+  },
+
+  vaultSearchByTag(tag) {
+    this.vaultSearchQuery = '#' + tag;
+    this.vaultIsSearching = true;
+    this.render();
+    VaultAPI.search('#' + tag).then(data => {
+      this.vaultSearchResults = data.results || [];
+      this.render();
+    }).catch(() => {});
+  },
+
+  async vaultNewFile() {
+    const name = prompt('New file name (without .md):');
+    if (!name) return;
+    const filePath = (this.vaultPath ? this.vaultPath + '/' : '') + name.trim() + '.md';
+    try {
+      await VaultAPI.createFile(filePath, `# ${name.trim()}\n\n`);
+      this.openVaultFile(filePath);
+    } catch (err) {
+      alert('Could not create file: ' + (err.message || 'Error'));
+    }
+  },
+
+  // ─── Timer ──────────────────────────────────
+  // timerState: { running, seconds, total, type, mode, elapsed, interval, completed, completedDuration, completedType }
+  // mode: 'countdown' (default) or 'stopwatch' (ascending)
+  timerState: {},
+  showHabitEditor: false,
+  focusMode: false,
+  fabExpanded: false,
+
+  _tickTimer() {
+    const el = document.querySelector('.timer-time');
+    const ring = document.querySelector('.timer-progress-ring circle:nth-child(2)');
+    const ts = this.timerState;
+
+    if (ts.mode === 'stopwatch') {
+      // Ascending — count up
+      ts.elapsed++;
+      if (el) {
+        const h = Math.floor(ts.elapsed / 3600);
+        const m = Math.floor((ts.elapsed % 3600) / 60);
+        const s = ts.elapsed % 60;
+        el.textContent = h > 0
+          ? `${String(h)}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+          : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      }
+      if (ring) {
+        // Pulse ring gently (loop every 60s)
+        const pct = (ts.elapsed % 60) / 60 * 100;
+        ring.setAttribute('stroke-dashoffset', 2 * Math.PI * 44 * (1 - pct / 100));
+      }
+    } else {
+      // Countdown
+      ts.seconds--;
+      if (ts.seconds <= 0) {
+        this.completeTimer();
+        return;
+      }
+      if (el) {
+        const m = Math.floor(ts.seconds / 60);
+        const s = ts.seconds % 60;
+        el.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      }
+      if (ring) {
+        const pct = (ts.total - ts.seconds) / ts.total * 100;
+        ring.setAttribute('stroke-dashoffset', 2 * Math.PI * 44 * (1 - pct / 100));
+      }
+    }
+  },
+
+  startTimer(minutes, type, mode) {
+    if (this.timerState.interval) clearInterval(this.timerState.interval);
+    const timerMode = mode || 'countdown';
+    if (timerMode === 'stopwatch') {
+      this.timerState = { running: true, mode: 'stopwatch', elapsed: 0, type: type || 'Stopwatch', interval: null };
+    } else {
+      this.timerState = { running: true, mode: 'countdown', seconds: minutes * 60, total: minutes * 60, type: type || 'Study', interval: null };
+    }
+    this.timerState.interval = setInterval(() => this._tickTimer(), 1000);
+    this.render();
+  },
+
+  startCustomTimer() {
+    const input = document.getElementById('timer-custom-min');
+    const mins = parseInt(input?.value);
+    if (!mins || mins < 1) return;
+    this.startTimer(mins, `${mins}m Session`, 'countdown');
+  },
+
+  resumeTimer() {
+    const ts = this.timerState;
+    if (ts.mode === 'stopwatch' && typeof ts.elapsed !== 'number') return;
+    if (ts.mode !== 'stopwatch' && !ts.seconds) return;
+    ts.running = true;
+    ts.interval = setInterval(() => this._tickTimer(), 1000);
+    this.render();
+  },
+
+  pauseTimer() {
+    if (this.timerState.interval) clearInterval(this.timerState.interval);
+    this.timerState.running = false;
+    this.timerState.interval = null;
+    this.render();
+  },
+
+  resetTimer() {
+    if (this.timerState.interval) clearInterval(this.timerState.interval);
+    this.timerState = {};
+    this.render();
+  },
+
+  stopTimer() {
+    if (this.timerState.interval) clearInterval(this.timerState.interval);
+    const elapsed = this.timerState.elapsed || 0;
+    const type = this.timerState.type || 'Stopwatch';
+    const durationMin = Math.round(elapsed / 60);
+    if (durationMin >= 1) {
+      Store.update(d => {
+        if (!d.timer) d.timer = { sessions: [] };
+        d.timer.sessions.push({ date: todayKey(), duration: durationMin, type, ts: Date.now() });
+      });
+    }
+    this._timerNotify(durationMin, type);
+    this.timerState = { completed: true, completedDuration: durationMin, completedType: type };
+    this.render();
+  },
+
+  _timerNotify(durationMin, type) {
+    // Audio beep
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      osc.frequency.value = 800; osc.connect(ctx.destination); osc.start();
+      setTimeout(() => osc.stop(), 200);
+    } catch {}
+    // Browser notification
+    if (Notification.permission === 'granted') {
+      new Notification('Timer Complete', { body: `${durationMin}min ${type} session done!`, icon: '&#9670;' });
+    }
+  },
+
+  completeTimer() {
+    if (this.timerState.interval) clearInterval(this.timerState.interval);
+    const duration = this.timerState.total || 0;
+    const type = this.timerState.type || 'Study';
+    const durationMin = Math.round(duration / 60);
+    Store.update(d => {
+      if (!d.timer) d.timer = { sessions: [] };
+      d.timer.sessions.push({ date: todayKey(), duration: durationMin, type, ts: Date.now() });
+    });
+    this._timerNotify(durationMin, type);
+    this.timerState = { completed: true, completedDuration: durationMin, completedType: type };
+    this.render();
+  },
+
+  timerLogToCapture() {
+    const ts = this.timerState;
+    const noteEl = document.getElementById('timer-note');
+    const note = noteEl ? noteEl.value.trim() : '';
+    const text = `Completed ${ts.completedDuration || 0}min ${ts.completedType || 'Study'} session${note ? ' — ' + note : ''}`;
+    Store.update(d => d.captures.push({ id: uid(), text, created: Date.now() }));
+    if (this.vaultAvailable) {
+      VaultAPI.addCapture(text).catch(() => {});
+    }
+    this.timerState = {};
+    this.render();
+  },
+
+  timerDismiss() {
+    this.timerState = {};
+    this.render();
+  },
+
+  // ─── Habits ─────────────────────────────────
+  toggleHabit(habitId) {
+    Store.update(d => {
+      if (!d.habits) d.habits = { definitions: [], log: {} };
+      const today = todayKey();
+      if (!d.habits.log[today]) d.habits.log[today] = {};
+      d.habits.log[today][habitId] = !d.habits.log[today][habitId];
+    });
+    this.render();
+  },
+
+  addHabit() {
+    const nameInput = document.getElementById('habit-name-input');
+    const iconInput = document.getElementById('habit-icon-input');
+    const name = nameInput ? nameInput.value.trim() : '';
+    if (!name) return;
+    const icon = iconInput ? iconInput.value.trim() || '\u2611' : '\u2611';
+    Store.update(d => {
+      if (!d.habits) d.habits = { definitions: [], log: {} };
+      d.habits.definitions.push({ id: uid(), name, icon });
+    });
+    this.render();
+  },
+
+  deleteHabit(id) {
+    Store.update(d => {
+      if (!d.habits) return;
+      d.habits.definitions = d.habits.definitions.filter(h => h.id !== id);
+    });
+    this.render();
+  },
+
+  // ─── Topics & Spaced Repetition ──────────────
+  getTopicsDue() {
+    const data = Store.get();
+    const topics = data.topics || [];
+    const today = todayKey();
+    return topics.filter(t => {
+      if (!t.lastStudied || t.status === 'not-started') return false;
+      const intervals = { weak: 2, moderate: 5, strong: 14 };
+      const interval = intervals[t.status] || 7;
+      const last = new Date(t.lastStudied);
+      last.setDate(last.getDate() + interval);
+      return last.toISOString().slice(0, 10) <= today;
+    });
+  },
+
+  markTopicReviewed(id) {
+    Store.update(d => {
+      const topic = (d.topics || []).find(t => t.id === id);
+      if (topic) topic.lastStudied = todayKey();
+    });
+    this.render();
+  },
+
+  addTopic() {
+    const nameInput = document.getElementById('topic-name-input');
+    const catInput = document.getElementById('topic-category-input');
+    const name = nameInput ? nameInput.value.trim() : '';
+    if (!name) return;
+    const category = catInput ? catInput.value.trim() : '';
+    Store.update(d => {
+      if (!d.topics) d.topics = [];
+      d.topics.push({ id: uid(), name, category, status: 'not-started', lastStudied: null });
+    });
+    this.render();
+  },
+
+  setTopicStatus(id, status) {
+    Store.update(d => {
+      const topic = (d.topics || []).find(t => t.id === id);
+      if (topic) {
+        topic.status = status;
+        topic.lastStudied = todayKey();
+      }
+    });
+    this.render();
+  },
+
+  cycleTopicStatus(id) {
+    const order = ['not-started', 'weak', 'moderate', 'strong'];
+    Store.update(d => {
+      const topic = (d.topics || []).find(t => t.id === id);
+      if (topic) {
+        const idx = order.indexOf(topic.status);
+        topic.status = order[(idx + 1) % order.length];
+        if (topic.status !== 'not-started') topic.lastStudied = todayKey();
+      }
+    });
+    this.render();
+  },
+
+  deleteTopic(id) {
+    Store.update(d => {
+      d.topics = (d.topics || []).filter(t => t.id !== id);
+    });
+    this.render();
+  },
+
+  loadTopicPreset() {
+    const presetTopics = [
+      { cat: 'Upper Limb', topics: ['Shoulder', 'Elbow', 'Wrist & Hand', 'Brachial Plexus'] },
+      { cat: 'Lower Limb', topics: ['Hip', 'Knee', 'Ankle & Foot'] },
+      { cat: 'Spine', topics: ['Cervical Spine', 'Thoracolumbar Spine', 'Deformities'] },
+      { cat: 'Trauma', topics: ['Fracture Principles', 'Polytrauma', 'Pelvic & Acetabular'] },
+      { cat: 'Paediatrics', topics: ['DDH', 'Clubfoot', 'Paediatric Fractures'] },
+      { cat: 'Arthroplasty', topics: ['Primary TKA', 'Primary THA', 'Revision Arthroplasty'] },
+      { cat: 'Other', topics: ['Tumors', 'Infections', 'Sports Medicine', 'Metabolic Bone'] },
+    ];
+    Store.update(d => {
+      if (!d.topics) d.topics = [];
+      for (const group of presetTopics) {
+        for (const name of group.topics) {
+          if (!d.topics.find(t => t.name === name)) {
+            d.topics.push({ id: uid(), name, category: group.cat, status: 'not-started', lastStudied: null });
+          }
+        }
+      }
+    });
+    this.render();
+  },
+
+  // ─── MCQ Score Tracker ──────────────────────
+  addMcqScore() {
+    const dateInput = document.getElementById('mcq-date');
+    const sourceInput = document.getElementById('mcq-source');
+    const scoreInput = document.getElementById('mcq-score');
+    const totalInput = document.getElementById('mcq-total');
+    const score = parseInt(scoreInput?.value);
+    const total = parseInt(totalInput?.value);
+    if (isNaN(score) || isNaN(total) || total <= 0) return;
+    const date = dateInput?.value || todayKey();
+    const source = sourceInput?.value?.trim() || '';
+    Store.update(d => {
+      if (!d.mcqScores) d.mcqScores = [];
+      d.mcqScores.push({ id: uid(), date, source, score, total });
+    });
+    this.render();
+  },
+
+  deleteMcqScore(id) {
+    Store.update(d => {
+      d.mcqScores = (d.mcqScores || []).filter(s => s.id !== id);
+    });
+    this.render();
+  },
+
+  // ─── Focus Mode ─────────────────────────────
+  toggleFocusMode() {
+    this.focusMode = !this.focusMode;
+    document.body.classList.toggle('focus-mode', this.focusMode);
+    if (this.focusMode) {
+      this.currentView = 'today';
+      document.querySelectorAll('#nav-links li').forEach(l => l.classList.toggle('active', l.dataset.view === 'today'));
+    }
+    this.render();
+  },
+
+  // ─── Floating Quick-Add (FAB) ────────────────
+  toggleFab() {
+    this.fabExpanded = !this.fabExpanded;
+    this.render();
+  },
+
+  async fabAdd() {
+    const input = document.getElementById('fab-input');
+    const text = input ? input.value.trim() : '';
+    if (!text) return;
+    Store.update(d => d.captures.push({ id: uid(), text, created: Date.now() }));
+    if (this.vaultAvailable) {
+      try { await VaultAPI.addCapture(text); } catch {}
+    }
+    this.fabExpanded = false;
+    this.render();
+  },
+
+  // ─── Weekly Review Export ────────────────────
+  async exportWeeklyReview() {
+    try {
+      const customTags = Store.get().weeklyReviewTags || ['lesson', 'people', 'food'];
+      const res = await fetch('/api/vault/weekly-review/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customTags })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      this.weeklyExportMsg = 'Exported: ' + (data.file || 'weekly review');
+      this.render();
+      setTimeout(() => { this.weeklyExportMsg = null; this.render(); }, 3000);
+    } catch (err) {
+      alert('Export failed: ' + (err.message || 'Error'));
+    }
+  },
+
+  // ─── Drag-to-Reorder ────────────────────────
+  _dragIdx: null,
+
+  onScheduleDragStart(e, idx) {
+    this._dragIdx = idx;
+    e.dataTransfer.effectAllowed = 'move';
+  },
+
+  onScheduleDrop(e, idx) {
+    e.preventDefault();
+    const from = this._dragIdx;
+    if (from === null || from === idx) return;
+    Store.update(d => {
+      const arr = d.strategy.schedule;
+      const item = arr.splice(from, 1)[0];
+      arr.splice(idx, 0, item);
+    });
+    this._dragIdx = null;
+    this.render();
+  },
+
+  onMilestoneDragStart(e, month, idx) {
+    this._dragIdx = idx;
+    this._dragMonth = month;
+    e.dataTransfer.effectAllowed = 'move';
+  },
+
+  onMilestoneDrop(e, month, idx) {
+    e.preventDefault();
+    const from = this._dragIdx;
+    if (from === null || from === idx || this._dragMonth !== month) return;
+    Store.update(d => {
+      const arr = d.strategy.milestones[month];
+      if (!arr) return;
+      const item = arr.splice(from, 1)[0];
+      arr.splice(idx, 0, item);
+    });
+    this._dragIdx = null;
+    this._dragMonth = null;
+    this.render();
+  },
+
+  // ─── Search & Capture Filter ─────────────────
+  searchQuery: '',
+  captureTagFilter: '',
+
+  // ─── Weekly Review Custom Tags ──────────────
+  addWeeklyTag() {
+    const input = document.getElementById('weekly-tag-input');
+    const tag = (input?.value || '').trim().replace(/^#/, '').toLowerCase();
+    if (!tag) return;
+    Store.update(d => {
+      if (!d.weeklyReviewTags) d.weeklyReviewTags = ['lesson', 'people', 'food'];
+      if (!d.weeklyReviewTags.includes(tag)) d.weeklyReviewTags.push(tag);
+    });
+    this.render();
+  },
+
+  removeWeeklyTag(tag) {
+    Store.update(d => {
+      if (!d.weeklyReviewTags) return;
+      d.weeklyReviewTags = d.weeklyReviewTags.filter(t => t !== tag);
+    });
+    this.render();
+  },
+
+  // ─── Habit Drag Reorder ─────────────────────
+  onHabitDragStart(e, idx) {
+    this._habitDragIdx = idx;
+    e.dataTransfer.effectAllowed = 'move';
+  },
+
+  onHabitDrop(e, idx) {
+    e.preventDefault();
+    const from = this._habitDragIdx;
+    if (from === null || from === idx) return;
+    Store.update(d => {
+      const arr = d.habits.definitions;
+      const item = arr.splice(from, 1)[0];
+      arr.splice(idx, 0, item);
+    });
+    this._habitDragIdx = null;
+    this.render();
+  },
+
+  // ─── Theme Toggle ────────────────────────────
+  toggleTheme() {
+    const data = Store.get();
+    const newTheme = (data.theme || 'dark') === 'dark' ? 'light' : 'dark';
+    Store.update(d => { d.theme = newTheme; });
+    document.body.classList.toggle('light', newTheme === 'light');
+    const btn = document.getElementById('theme-toggle');
+    if (btn) btn.innerHTML = newTheme === 'dark' ? '&#9788;' : '&#9790;';
+  },
+
+  // ─── Today Quick Add ────────────────────────
+  async todayQuickAdd() {
+    const input = document.getElementById('today-quick-input');
+    const text = input ? input.value.trim() : '';
+    if (!text) return;
+    // Add to Nexus captures
+    Store.update(d => d.captures.push({ id: uid(), text, created: Date.now() }));
+    // Also log to vault Quick Captures file
+    if (this.vaultAvailable) {
+      try {
+        await VaultAPI.addCapture(text);
+      } catch {}
+    }
+    if (this.currentView === 'today') this.render();
+  },
+
+  // ─── Capture with Vault Bridge ──────────────
+  addCapture() {
+    const input = document.getElementById('capture-input');
+    const text = input.value.trim();
+    if (!text) return;
+    Store.update(d => d.captures.push({ id: uid(), text, created: Date.now() }));
+    // Bridge to vault — save to Quick Captures file
+    const toggle = document.getElementById('capture-vault-toggle');
+    if (toggle && toggle.checked) {
+      VaultAPI.addCapture(text).catch(() => {});
+    }
+    this.render();
+  },
+};
+
+// ── Keyboard Shortcuts ────────────────────────────
+document.addEventListener('keydown', (e) => {
+  // Skip if typing in an input/textarea
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+
+  const key = e.key.toLowerCase();
+  if (key === 'c') {
+    document.querySelector('[data-view="capture"]')?.click();
+    setTimeout(() => document.getElementById('capture-input')?.focus(), 50);
+  } else if (key === 't') {
+    document.querySelector('[data-view="tasks"]')?.click();
+    setTimeout(() => document.getElementById('task-input')?.focus(), 50);
+  } else if (key === 'j') {
+    document.querySelector('[data-view="journal"]')?.click();
+    setTimeout(() => document.getElementById('journal-input')?.focus(), 50);
+  } else if (key === 'd') {
+    document.querySelector('[data-view="dashboard"]')?.click();
+  } else if (key === 'y') {
+    document.querySelector('[data-view="today"]')?.click();
+  } else if (key === 'v') {
+    document.querySelector('[data-view="vault"]')?.click();
+  } else if (key === 'g') {
+    document.querySelector('[data-view="goals"]')?.click();
+  } else if (key === 's') {
+    App.currentView = 'search'; App.render();
+    setTimeout(() => document.getElementById('search-input')?.focus(), 50);
+  } else if (key === '/') {
+    e.preventDefault();
+    document.querySelector('[data-view="vault"]')?.click();
+    setTimeout(() => document.getElementById('vault-search')?.focus(), 50);
+  } else if (key === 'f') {
+    App.toggleFocusMode();
+  } else if (key === '?') {
+    e.preventDefault();
+    App.showShortcutHelp = !App.showShortcutHelp;
+    App.render();
+  }
+});
+
+// ── Boot ───────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => App.init());
