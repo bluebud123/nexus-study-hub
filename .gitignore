@@ -1,4 +1,5 @@
 nexus-data.json
+nexus-config.json
 backups/
 node_modules/
 .claude/

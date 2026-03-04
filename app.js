@@ -99,6 +99,7 @@ const Store = {
     a.download = `nexus-backup-${new Date().toISOString().slice(0,10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    toast('Data exported');
   },
 
   importJSON(file) {
@@ -147,6 +148,14 @@ function escapeHTML(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2200);
 }
 
 // ── Strategy Constants ─────────────────────────────
@@ -465,7 +474,7 @@ const Views = {
             </div>
           `).join('')}
         </div>
-      ` : '<div class="empty-state" style="padding:20px;"><div class="empty-text">No open tasks. Nice!</div></div>'}
+      ` : '<div class="empty-state" style="padding:20px;"><div class="empty-text">No open tasks. Add one from Tasks (T) or capture and convert!</div></div>'}
 
       <h3 style="margin-bottom:12px; font-size:16px; color:var(--text-dim);">Recent Captures</h3>
       ${recentCaptures.length ? `
@@ -477,7 +486,7 @@ const Views = {
             </div>
           `).join('')}
         </div>
-      ` : '<div class="empty-state" style="padding:20px;"><div class="empty-text">Nothing captured yet. Use Capture to jot things down.</div></div>'}
+      ` : '<div class="empty-state" style="padding:20px;"><div class="empty-text">Nothing captured yet. Press C to start capturing thoughts!</div></div>'}
 
       ${App.vaultAvailable && App.vaultSuggestions && App.vaultSuggestions.suggestions && App.vaultSuggestions.suggestions.length > 0 ? `
         <div class="card" style="border-left: 3px solid var(--amber); margin-top:20px;">
@@ -645,17 +654,21 @@ const Views = {
         <div class="timer-controls">
           ${ts.completed ? `
             <div style="text-align:center; margin-bottom:8px; color:var(--accent); font-weight:600;">✓ ${ts.completedDuration}min ${ts.completedType} done!</div>
-            <input type="text" id="timer-note" class="strat-settings-input" placeholder="What did you study? (optional)" style="margin-bottom:8px; width:100%;">
+            <input type="text" id="timer-note" class="strat-settings-input" placeholder="What did you study? (optional)" style="margin-bottom:8px; width:100%;" value="${escapeHTML(App._timerNote || '')}">
             <button class="btn btn-primary btn-sm" onclick="App.timerLogToCapture()">Log to Capture</button>
             <button class="btn btn-ghost btn-sm" onclick="App.timerDismiss()">Dismiss</button>
-          ` : ts.running ? `
-            <button class="btn btn-ghost btn-sm" onclick="App.pauseTimer()">Pause</button>
-            ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary btn-sm" onclick="App.stopTimer()">Stop</button>` : ''}
-            <button class="btn btn-ghost btn-sm" onclick="App.resetTimer()">Reset</button>
-          ` : (ts.seconds > 0 || ts.mode === 'stopwatch') ? `
-            <button class="btn btn-primary btn-sm" onclick="App.resumeTimer()">Resume</button>
-            ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary btn-sm" onclick="App.stopTimer()">Stop</button>` : ''}
-            <button class="btn btn-ghost btn-sm" onclick="App.resetTimer()">Reset</button>
+          ` : ts.running || (ts.seconds > 0 || ts.mode === 'stopwatch') ? `
+            <input type="text" id="timer-note" class="strat-settings-input" placeholder="What are you studying? (optional)" style="margin-bottom:8px; width:100%;" value="${escapeHTML(App._timerNote || '')}"
+              oninput="App._timerNote=this.value">
+            ${ts.running ? `
+              <button class="btn btn-ghost btn-sm" onclick="App.pauseTimer()">Pause</button>
+              ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary btn-sm" onclick="App.stopTimer()">Stop</button>` : ''}
+              <button class="btn btn-ghost btn-sm" onclick="App.resetTimer()">Reset</button>
+            ` : `
+              <button class="btn btn-primary btn-sm" onclick="App.resumeTimer()">Resume</button>
+              ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary btn-sm" onclick="App.stopTimer()">Stop</button>` : ''}
+              <button class="btn btn-ghost btn-sm" onclick="App.resetTimer()">Reset</button>
+            `}
           ` : `
             <div class="timer-presets">
               <button class="btn btn-primary btn-sm" onclick="App.startTimer(25, 'Pomodoro')">25m</button>
@@ -810,6 +823,9 @@ const Views = {
       captures = captures.filter(c => c.text.toLowerCase().includes(activeTag));
     }
 
+    // Pinned first
+    captures.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+
     return `
       <h1 class="view-title">Capture</h1>
       <p class="view-subtitle">Quick thoughts, ideas, anything — get it out of your head</p>
@@ -841,8 +857,12 @@ const Views = {
           ${captures.map(c => {
             const tags = c.text.match(/#\w+/g) || [];
             return `
-            <div class="capture-card">
-              <button class="item-delete" onclick="App.deleteCapture('${c.id}')">&times;</button>
+            <div class="capture-card ${c.pinned ? 'capture-pinned' : ''}">
+              <div class="capture-actions-row">
+                <button class="capture-action-btn" onclick="App.togglePinCapture('${c.id}')" title="${c.pinned ? 'Unpin' : 'Pin'}">${c.pinned ? '&#9733;' : '&#9734;'}</button>
+                <button class="capture-action-btn" onclick="App.captureToTask('${c.id}')" title="Convert to task">&#8594;T</button>
+                <button class="item-delete" onclick="App.deleteCapture('${c.id}')">&times;</button>
+              </div>
               <div class="capture-text">${escapeHTML(c.text)}</div>
               <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
                 <div class="capture-time">${formatDate(c.created)}</div>
@@ -854,7 +874,7 @@ const Views = {
       ` : `
         <div class="empty-state">
           <div class="empty-icon">&#9889;</div>
-          <div class="empty-text">${activeTag ? 'No captures with this tag.' : 'Your captures will appear here.'}</div>
+          <div class="empty-text">${activeTag ? 'No captures with this tag.' : 'Your captures will appear here. Type anything above and hit Capture!'}</div>
         </div>
       `}
     `;
@@ -906,8 +926,9 @@ const Views = {
       <p class="view-subtitle">Track what needs to get done</p>
 
       <div class="input-row">
-        <input type="text" id="task-input" placeholder="Add a task..." onkeydown="if(event.key==='Enter')App.addTask()">
-        <input type="text" id="task-category" placeholder="Category" style="max-width:140px;" onkeydown="if(event.key==='Enter')App.addTask()">
+        <input type="text" id="task-input" placeholder="Add a task..." style="flex:1;" onkeydown="if(event.key==='Enter')App.addTask()">
+        <input type="text" id="task-category" placeholder="Category" style="max-width:100px;" onkeydown="if(event.key==='Enter')App.addTask()">
+        <input type="date" id="task-due" class="strat-settings-input" style="max-width:130px;" title="Due date (optional)">
         <button class="btn btn-primary" onclick="App.addTask()">Add</button>
       </div>
 
@@ -919,19 +940,22 @@ const Views = {
 
       ${tasks.length ? `
         <div class="item-list">
-          ${tasks.map(t => `
-            <div class="item">
+          ${tasks.map(t => {
+            const overdue = t.due && !t.done && t.due < todayKey();
+            return `
+            <div class="item ${overdue ? 'task-overdue' : ''}">
               <div class="item-check ${t.done ? 'done' : ''}" onclick="App.toggleTask('${t.id}')"></div>
               <div class="item-body">
                 <div class="item-title ${t.done ? 'done' : ''}">${escapeHTML(t.text)}</div>
                 <div class="item-meta">
                   ${t.category ? `<span class="tag tag-accent">${escapeHTML(t.category)}</span> ` : ''}
+                  ${t.due ? `<span style="color:${overdue ? '#e74c3c' : 'var(--text-dim)'};">&#128197; ${t.due}</span> ` : ''}
                   ${formatDate(t.created)}
                 </div>
               </div>
               <button class="item-delete" onclick="App.deleteTask('${t.id}')">&times;</button>
-            </div>
-          `).join('')}
+            </div>`;
+          }).join('')}
         </div>
       ` : `
         <div class="empty-state" style="padding:20px;">
@@ -1021,7 +1045,7 @@ const Views = {
         ${!entries.length ? `
           <div class="empty-state">
             <div class="empty-icon">&#9998;</div>
-            <div class="empty-text">Start writing. Your future self will thank you.</div>
+            <div class="empty-text">Start writing. Quick bullets about your day — use #tags like #lesson or #people for weekly reviews.</div>
           </div>
         ` : ''}
       `}
@@ -1071,7 +1095,7 @@ const Views = {
       ` : `
         <div class="empty-state">
           <div class="empty-icon">&#9650;</div>
-          <div class="empty-text">No goals yet. What are you working toward?</div>
+          <div class="empty-text">No goals yet. Set a target like "Complete 500 MCQs" and track your progress!</div>
         </div>
       `}
     `;
@@ -1828,6 +1852,27 @@ const Views = {
         </div>
       </div>
 
+      <!-- Session History -->
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div class="strat-section-label">Session History</div>
+          <span style="font-size:11px; color:var(--text-dim); cursor:pointer;" onclick="App.showAllSessions=!App.showAllSessions; App.render();">${App.showAllSessions ? 'Show less' : 'Show all'}</span>
+        </div>
+        ${(() => {
+          const sessions = [...((Store.get().timer || {}).sessions || [])].reverse();
+          const shown = App.showAllSessions ? sessions : sessions.slice(0, 5);
+          if (!shown.length) return '<div style="font-size:12px; color:var(--text-dim);">No sessions yet. Start a timer!</div>';
+          return shown.map(s => `
+            <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border);">
+              <span style="font-size:11px; color:var(--text-dim); min-width:80px;">${new Date(s.ts).toLocaleDateString('en', { month:'short', day:'numeric' })}</span>
+              <span style="font-size:12px; font-weight:600; min-width:45px;">${s.duration}min</span>
+              <span class="tag-badge-sm">${escapeHTML(s.type || 'Study')}</span>
+              ${s.note ? `<span style="font-size:12px; color:var(--text-dim); flex:1;">${escapeHTML(s.note)}</span>` : ''}
+            </div>
+          `).join('');
+        })()}
+      </div>
+
       <!-- MCQ Score Entry -->
       <div class="card">
         <div class="strat-section-label">Log MCQ Score</div>
@@ -2021,17 +2066,21 @@ const Views = {
         <div class="timer-controls">
           ${ts.completed ? `
             <div style="text-align:center; margin-bottom:8px; color:var(--accent); font-weight:600;">✓ ${ts.completedDuration}min ${ts.completedType} done!</div>
-            <input type="text" id="timer-note" class="strat-settings-input" placeholder="What did you study? (optional)" style="margin-bottom:8px; width:100%;">
+            <input type="text" id="timer-note" class="strat-settings-input" placeholder="What did you study? (optional)" style="margin-bottom:8px; width:100%;" value="${escapeHTML(App._timerNote || '')}">
             <button class="btn btn-primary" onclick="App.timerLogToCapture()">Log to Capture</button>
             <button class="btn btn-ghost" onclick="App.timerDismiss()">Dismiss</button>
-          ` : ts.running ? `
-            <button class="btn btn-ghost" onclick="App.pauseTimer()">Pause</button>
-            ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary" onclick="App.stopTimer()">Stop</button>` : ''}
-            <button class="btn btn-ghost" onclick="App.resetTimer()">Reset</button>
-          ` : (ts.seconds > 0 || ts.mode === 'stopwatch') ? `
-            <button class="btn btn-primary" onclick="App.resumeTimer()">Resume</button>
-            ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary" onclick="App.stopTimer()">Stop</button>` : ''}
-            <button class="btn btn-ghost" onclick="App.resetTimer()">Reset</button>
+          ` : ts.running || (ts.seconds > 0 || ts.mode === 'stopwatch') ? `
+            <input type="text" id="timer-note" class="strat-settings-input" placeholder="What are you studying? (optional)" style="margin-bottom:8px; width:100%;" value="${escapeHTML(App._timerNote || '')}"
+              oninput="App._timerNote=this.value">
+            ${ts.running ? `
+              <button class="btn btn-ghost" onclick="App.pauseTimer()">Pause</button>
+              ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary" onclick="App.stopTimer()">Stop</button>` : ''}
+              <button class="btn btn-ghost" onclick="App.resetTimer()">Reset</button>
+            ` : `
+              <button class="btn btn-primary" onclick="App.resumeTimer()">Resume</button>
+              ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary" onclick="App.stopTimer()">Stop</button>` : ''}
+              <button class="btn btn-ghost" onclick="App.resetTimer()">Reset</button>
+            `}
           ` : `
             <div class="timer-presets">
               <button class="btn btn-primary" onclick="App.startTimer(25, 'Pomodoro')">25 min</button>
@@ -2227,6 +2276,18 @@ const Views = {
           <button class="btn btn-primary btn-sm" onclick="App.addWeeklyTag()">Add</button>
         </div>
       </div>
+
+      <div class="card">
+        <div class="strat-section-label">Vault Connection</div>
+        <div style="font-size:13px; color:var(--text-dim); margin-bottom:8px;">
+          ${App.vaultAvailable ? `<span style="color:var(--green);">&#10003; Connected</span> — ${escapeHTML((App.serverConfig || {}).vaultPath || '')}`
+            : 'Not connected. Connect your Obsidian vault to enable journaling sync, task sync, and weekly reviews.'}
+        </div>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="settings-vault-path" class="strat-settings-input" placeholder="Vault folder path (e.g. D:/Obsidian/My Vault)" style="flex:1;" value="${escapeHTML((App.serverConfig || {}).vaultPath || '')}">
+          <button class="btn btn-primary btn-sm" onclick="App.updateVaultPath()">Save</button>
+        </div>
+      </div>
     `;
   }
 };
@@ -2263,11 +2324,47 @@ const App = {
   showShortcutHelp: false,
 
   async init() {
+    // Prevent multiple tabs
+    const channel = new BroadcastChannel('nexus-tab');
+    channel.postMessage('ping');
+    channel.onmessage = (e) => {
+      if (e.data === 'ping') channel.postMessage('pong');
+      if (e.data === 'pong') {
+        document.getElementById('content').innerHTML = `
+          <div style="text-align:center; padding:80px 20px;">
+            <div style="font-size:48px; margin-bottom:16px;">&#9888;</div>
+            <h2>Nexus is already open</h2>
+            <p style="color:var(--text-dim); margin-top:8px;">Close the other tab first, or use it instead.</p>
+            <button class="btn btn-primary" style="margin-top:20px;" onclick="window.location.reload()">Try again</button>
+          </div>`;
+        document.getElementById('sidebar').style.display = 'none';
+        throw new Error('duplicate');
+      }
+    };
+    // Small delay to detect existing tabs
+    await new Promise(r => setTimeout(r, 200));
+    if (document.getElementById('sidebar').style.display === 'none' && !document.querySelector('.setup-wizard')) return;
+
+    // Check if setup is needed
+    try {
+      const cfgRes = await fetch('/api/config');
+      const cfg = await cfgRes.json();
+      if (!cfg.setupComplete) {
+        this.showSetupWizard();
+        return;
+      }
+      this.serverConfig = cfg;
+    } catch {}
+
     // Load data from server before anything else
     await Store.init();
     // Request notification permission for timer
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
+    }
+    // Register PWA service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
     updateStreak();
     // Apply saved theme
@@ -2276,24 +2373,31 @@ const App = {
     this.bindNav();
     this.bindExport();
     this.render();
-    // Pre-fetch vault data in background
-    try {
-      const [stats, suggestions, growth, vaultTasks] = await Promise.all([
-        VaultAPI.getStats().catch(() => null),
-        VaultAPI.getSuggestions().catch(() => null),
-        VaultAPI.getGrowth().catch(() => null),
-        VaultAPI.getTasks().catch(() => null),
-      ]);
-      this.vaultStats = stats;
-      this.vaultSuggestions = suggestions;
-      this.growthData = growth;
-      this.vaultTasks = vaultTasks;
-      this.vaultAvailable = !!stats;
-      // Re-render to show vault data
-      this.render();
-      // Auto weekly export check
-      this.checkAutoWeeklyExport();
-    } catch { this.vaultAvailable = false; }
+    // Pre-fetch vault data in background (only if vault is configured)
+    if (this.serverConfig && this.serverConfig.useVault && this.serverConfig.vaultPath) {
+      try {
+        const [stats, suggestions, growth, vaultTasks] = await Promise.all([
+          VaultAPI.getStats().catch(() => null),
+          VaultAPI.getSuggestions().catch(() => null),
+          VaultAPI.getGrowth().catch(() => null),
+          VaultAPI.getTasks().catch(() => null),
+        ]);
+        this.vaultStats = stats;
+        this.vaultSuggestions = suggestions;
+        this.growthData = growth;
+        this.vaultTasks = vaultTasks;
+        this.vaultAvailable = !!stats && !stats.vaultDisabled;
+        // Re-render to show vault data
+        this.render();
+        // Auto weekly export check
+        this.checkAutoWeeklyExport();
+      } catch { this.vaultAvailable = false; }
+    } else {
+      this.vaultAvailable = false;
+      // Hide vault nav item
+      const vaultNav = document.querySelector('[data-view="vault"]');
+      if (vaultNav) vaultNav.style.display = 'none';
+    }
   },
 
   checkAutoWeeklyExport() {
@@ -2329,6 +2433,136 @@ const App = {
     const data = Store.get();
     Store.update(d => d.autoWeeklyExport = !d.autoWeeklyExport);
     this.render();
+  },
+
+  // ─── Setup Wizard ──────────────────────────────
+  _setupStep: 1,
+  _setupUseVault: false,
+  _setupVaultPath: '',
+  _setupExamDate: '',
+  _setupBrowsePath: '',
+  _setupFolders: [],
+
+  showSetupWizard() {
+    document.getElementById('sidebar').style.display = 'none';
+    this._setupExamDate = new Date(new Date().getFullYear(), 10, 1).toISOString().slice(0, 10);
+    this._renderSetup();
+  },
+
+  _renderSetup() {
+    const step = this._setupStep;
+    const content = document.getElementById('content');
+    content.style.marginLeft = '0';
+    content.style.maxWidth = '500px';
+    content.style.margin = '60px auto';
+    content.style.padding = '0 20px';
+
+    if (step === 1) {
+      content.innerHTML = `
+        <div style="text-align:center; margin-bottom:30px;">
+          <div style="font-size:48px; color:var(--accent);">&#9670;</div>
+          <h1 style="margin:8px 0;">Welcome to Nexus</h1>
+          <p class="view-subtitle">Your personal evolution hub. Let's get you set up.</p>
+        </div>
+        <div class="card" style="padding:20px;">
+          <label style="font-size:14px; font-weight:600; display:block; margin-bottom:8px;">When is your exam?</label>
+          <input type="date" id="setup-exam-date" class="strat-settings-input" value="${this._setupExamDate}" style="width:100%; margin-bottom:16px;">
+          <p style="font-size:12px; color:var(--text-dim);">You can always change this later in Strategy → Settings.</p>
+          <div style="text-align:right; margin-top:16px;">
+            <button class="btn btn-primary" onclick="App._setupExamDate=document.getElementById('setup-exam-date').value; App._setupStep=2; App._renderSetup();">Next</button>
+          </div>
+        </div>
+      `;
+    } else if (step === 2) {
+      content.innerHTML = `
+        <div style="text-align:center; margin-bottom:30px;">
+          <div style="font-size:48px; color:var(--accent);">&#128218;</div>
+          <h1 style="margin:8px 0;">Obsidian Vault</h1>
+          <p class="view-subtitle">Nexus can sync with your Obsidian vault for journaling, tasks, and reviews.</p>
+        </div>
+        <div class="card" style="padding:20px;">
+          <p style="font-size:13px; color:var(--text-dim); margin-bottom:16px;">Do you use Obsidian and want to connect your vault?</p>
+          <div style="display:flex; gap:12px;">
+            <button class="btn btn-primary" style="flex:1;" onclick="App._setupUseVault=true; App._setupStep=3; App._browseFolders(''); App._renderSetup();">Yes, connect vault</button>
+            <button class="btn btn-ghost" style="flex:1;" onclick="App._setupUseVault=false; App._setupStep=4; App._renderSetup();">No, skip for now</button>
+          </div>
+          <p style="font-size:11px; color:var(--text-dim); margin-top:12px;">You can connect it later from the Shortcuts & Guide page.</p>
+        </div>
+      `;
+    } else if (step === 3) {
+      content.innerHTML = `
+        <div style="text-align:center; margin-bottom:20px;">
+          <h1 style="margin:8px 0;">Select Vault Folder</h1>
+          <p class="view-subtitle">Navigate to your Obsidian vault folder.</p>
+        </div>
+        <div class="card" style="padding:20px;">
+          <div style="font-size:12px; color:var(--text-dim); margin-bottom:8px;">Current: <strong>${escapeHTML(this._setupBrowsePath || '/')}</strong></div>
+          <div style="max-height:250px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; margin-bottom:12px;">
+            <div style="padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border); color:var(--accent);" onclick="App._browseFolders(App._setupBrowseParent || '/')">&#8592; Parent folder</div>
+            ${this._setupFolders.map(f => `
+              <div style="padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border);" onmouseover="this.style.background='var(--bg-card)'" onmouseout="this.style.background=''" onclick="App._browseFolders('${f.path.replace(/'/g, "\\'")}')">&#128193; ${escapeHTML(f.name)}</div>
+            `).join('')}
+            ${this._setupFolders.length === 0 ? '<div style="padding:12px; font-size:12px; color:var(--text-dim);">No subfolders here</div>' : ''}
+          </div>
+          <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
+            <input type="text" id="setup-vault-path" class="strat-settings-input" placeholder="Or type path manually" value="${escapeHTML(this._setupVaultPath || this._setupBrowsePath || '')}" style="flex:1;">
+          </div>
+          <div style="display:flex; gap:8px; justify-content:space-between;">
+            <button class="btn btn-ghost" onclick="App._setupStep=2; App._renderSetup();">Back</button>
+            <button class="btn btn-primary" onclick="App._setupVaultPath=document.getElementById('setup-vault-path').value; App._setupStep=4; App._renderSetup();">Select this folder</button>
+          </div>
+        </div>
+      `;
+    } else if (step === 4) {
+      content.innerHTML = `
+        <div style="text-align:center; margin-bottom:30px;">
+          <div style="font-size:48px; color:var(--green);">&#10003;</div>
+          <h1 style="margin:8px 0;">All Set!</h1>
+          <p class="view-subtitle">Here's your setup:</p>
+        </div>
+        <div class="card" style="padding:20px;">
+          <div style="margin-bottom:12px;">
+            <strong>Exam date:</strong> ${this._setupExamDate || 'Not set'}
+          </div>
+          <div style="margin-bottom:16px;">
+            <strong>Obsidian vault:</strong> ${this._setupUseVault ? escapeHTML(this._setupVaultPath) : 'Not connected'}
+          </div>
+          <p style="font-size:12px; color:var(--text-dim); margin-bottom:16px;">You can change any of these later.</p>
+          <div style="display:flex; gap:8px; justify-content:space-between;">
+            <button class="btn btn-ghost" onclick="App._setupStep=${this._setupUseVault ? 3 : 2}; App._renderSetup();">Back</button>
+            <button class="btn btn-primary" onclick="App._completeSetup();">Launch Nexus</button>
+          </div>
+        </div>
+      `;
+    }
+  },
+
+  async _browseFolders(dirPath) {
+    try {
+      const res = await fetch('/api/browse-folders?path=' + encodeURIComponent(dirPath));
+      const data = await res.json();
+      this._setupBrowsePath = data.current;
+      this._setupBrowseParent = data.parent;
+      this._setupFolders = data.folders || [];
+      this._setupVaultPath = data.current;
+      if (this._setupStep === 3) this._renderSetup();
+    } catch {}
+  },
+
+  async _completeSetup() {
+    // Save config to server
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vaultPath: this._setupVaultPath, useVault: this._setupUseVault })
+    });
+    // Save exam date to Store
+    await Store.init();
+    if (this._setupExamDate) {
+      Store.update(d => d.strategy.examDate = this._setupExamDate);
+    }
+    // Reload to start fresh with full app
+    window.location.reload();
   },
 
   bindNav() {
@@ -2425,7 +2659,30 @@ const App = {
 
   // ─── Capture Actions ──────────────────────────
   deleteCapture(id) {
+    if (!confirm('Delete this capture?')) return;
     Store.update(d => d.captures = d.captures.filter(c => c.id !== id));
+    toast('Capture deleted');
+    this.render();
+  },
+
+  togglePinCapture(id) {
+    let pinned = false;
+    Store.update(d => {
+      const c = d.captures.find(c => c.id === id);
+      if (c) { c.pinned = !c.pinned; pinned = c.pinned; }
+    });
+    toast(pinned ? 'Pinned' : 'Unpinned');
+    this.render();
+  },
+
+  captureToTask(id) {
+    const data = Store.get();
+    const capture = data.captures.find(c => c.id === id);
+    if (!capture) return;
+    Store.update(d => {
+      d.tasks.push({ id: uid(), text: capture.text.replace(/#\w+/g, '').trim(), done: false, created: Date.now(), source: 'capture' });
+    });
+    toast('Added to tasks');
     this.render();
   },
 
@@ -2433,10 +2690,12 @@ const App = {
   addTask() {
     const input = document.getElementById('task-input');
     const catInput = document.getElementById('task-category');
+    const dueInput = document.getElementById('task-due');
     const text = input.value.trim();
     if (!text) return;
     const category = catInput.value.trim();
-    Store.update(d => d.tasks.push({ id: uid(), text, category, done: false, created: Date.now() }));
+    const due = dueInput?.value || '';
+    Store.update(d => d.tasks.push({ id: uid(), text, category, due, done: false, created: Date.now() }));
     this.render();
   },
 
@@ -2449,7 +2708,9 @@ const App = {
   },
 
   deleteTask(id) {
+    if (!confirm('Delete this task?')) return;
     Store.update(d => d.tasks = d.tasks.filter(t => t.id !== id));
+    toast('Task deleted');
     this.render();
   },
 
@@ -2510,7 +2771,9 @@ const App = {
   },
 
   deleteJournal(id) {
+    if (!confirm('Delete this journal entry?')) return;
     Store.update(d => d.journal = d.journal.filter(j => j.id !== id));
+    toast('Entry deleted');
     this.render();
   },
 
@@ -2534,7 +2797,9 @@ const App = {
   },
 
   deleteGoal(id) {
+    if (!confirm('Delete this goal?')) return;
     Store.update(d => d.goals = d.goals.filter(g => g.id !== id));
+    toast('Goal deleted');
     this.render();
   },
 
@@ -2802,6 +3067,8 @@ const App = {
   // mode: 'countdown' (default) or 'stopwatch' (ascending)
   timerState: {},
   showHabitEditor: false,
+  showAllSessions: false,
+  _timerNote: '',
   focusMode: false,
   fabExpanded: false,
 
@@ -2809,37 +3076,40 @@ const App = {
     const el = document.querySelector('.timer-time');
     const ring = document.querySelector('.timer-progress-ring circle:nth-child(2)');
     const ts = this.timerState;
+    const now = Date.now();
 
     if (ts.mode === 'stopwatch') {
-      // Ascending — count up
-      ts.elapsed++;
+      // Real elapsed = accumulated + current run
+      const realElapsed = ts.accumulated + Math.floor((now - ts.startedAt) / 1000);
+      ts.elapsed = realElapsed;
       if (el) {
-        const h = Math.floor(ts.elapsed / 3600);
-        const m = Math.floor((ts.elapsed % 3600) / 60);
-        const s = ts.elapsed % 60;
+        const h = Math.floor(realElapsed / 3600);
+        const m = Math.floor((realElapsed % 3600) / 60);
+        const s = realElapsed % 60;
         el.textContent = h > 0
           ? `${String(h)}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
           : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
       }
       if (ring) {
-        // Pulse ring gently (loop every 60s)
-        const pct = (ts.elapsed % 60) / 60 * 100;
+        const pct = (realElapsed % 60) / 60 * 100;
         ring.setAttribute('stroke-dashoffset', 2 * Math.PI * 44 * (1 - pct / 100));
       }
     } else {
-      // Countdown
-      ts.seconds--;
-      if (ts.seconds <= 0) {
+      // Real remaining = total - accumulated - current run
+      const ran = ts.accumulated + Math.floor((now - ts.startedAt) / 1000);
+      const remaining = Math.max(0, ts.total - ran);
+      ts.seconds = remaining;
+      if (remaining <= 0) {
         this.completeTimer();
         return;
       }
       if (el) {
-        const m = Math.floor(ts.seconds / 60);
-        const s = ts.seconds % 60;
+        const m = Math.floor(remaining / 60);
+        const s = remaining % 60;
         el.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
       }
       if (ring) {
-        const pct = (ts.total - ts.seconds) / ts.total * 100;
+        const pct = (ts.total - remaining) / ts.total * 100;
         ring.setAttribute('stroke-dashoffset', 2 * Math.PI * 44 * (1 - pct / 100));
       }
     }
@@ -2848,10 +3118,11 @@ const App = {
   startTimer(minutes, type, mode) {
     if (this.timerState.interval) clearInterval(this.timerState.interval);
     const timerMode = mode || 'countdown';
+    const now = Date.now();
     if (timerMode === 'stopwatch') {
-      this.timerState = { running: true, mode: 'stopwatch', elapsed: 0, type: type || 'Stopwatch', interval: null };
+      this.timerState = { running: true, mode: 'stopwatch', elapsed: 0, accumulated: 0, startedAt: now, type: type || 'Stopwatch', interval: null };
     } else {
-      this.timerState = { running: true, mode: 'countdown', seconds: minutes * 60, total: minutes * 60, type: type || 'Study', interval: null };
+      this.timerState = { running: true, mode: 'countdown', seconds: minutes * 60, total: minutes * 60, accumulated: 0, startedAt: now, type: type || 'Study', interval: null };
     }
     this.timerState.interval = setInterval(() => this._tickTimer(), 1000);
     this.render();
@@ -2860,7 +3131,10 @@ const App = {
   startCustomTimer() {
     const input = document.getElementById('timer-custom-min');
     const mins = parseInt(input?.value);
-    if (!mins || mins < 1) return;
+    if (!mins || mins < 1) {
+      if (input) { input.focus(); input.style.border = '1px solid #e74c3c'; setTimeout(() => input.style.border = '', 1500); }
+      return;
+    }
     this.startTimer(mins, `${mins}m Session`, 'countdown');
   },
 
@@ -2869,20 +3143,26 @@ const App = {
     if (ts.mode === 'stopwatch' && typeof ts.elapsed !== 'number') return;
     if (ts.mode !== 'stopwatch' && !ts.seconds) return;
     ts.running = true;
+    ts.startedAt = Date.now();
     ts.interval = setInterval(() => this._tickTimer(), 1000);
     this.render();
   },
 
   pauseTimer() {
     if (this.timerState.interval) clearInterval(this.timerState.interval);
-    this.timerState.running = false;
-    this.timerState.interval = null;
+    const ts = this.timerState;
+    // Accumulate time spent in this run
+    const ran = Math.floor((Date.now() - ts.startedAt) / 1000);
+    ts.accumulated = (ts.accumulated || 0) + ran;
+    ts.running = false;
+    ts.interval = null;
     this.render();
   },
 
   resetTimer() {
     if (this.timerState.interval) clearInterval(this.timerState.interval);
     this.timerState = {};
+    this._timerNote = '';
     this.render();
   },
 
@@ -2892,9 +3172,10 @@ const App = {
     const type = this.timerState.type || 'Stopwatch';
     const durationMin = Math.round(elapsed / 60);
     if (durationMin >= 1) {
+      const note = (this._timerNote || '').trim();
       Store.update(d => {
         if (!d.timer) d.timer = { sessions: [] };
-        d.timer.sessions.push({ date: todayKey(), duration: durationMin, type, ts: Date.now() });
+        d.timer.sessions.push({ date: todayKey(), duration: durationMin, type, ts: Date.now(), note });
       });
     }
     this._timerNotify(durationMin, type);
@@ -2921,9 +3202,10 @@ const App = {
     const duration = this.timerState.total || 0;
     const type = this.timerState.type || 'Study';
     const durationMin = Math.round(duration / 60);
+    const note = (this._timerNote || '').trim();
     Store.update(d => {
       if (!d.timer) d.timer = { sessions: [] };
-      d.timer.sessions.push({ date: todayKey(), duration: durationMin, type, ts: Date.now() });
+      d.timer.sessions.push({ date: todayKey(), duration: durationMin, type, ts: Date.now(), note });
     });
     this._timerNotify(durationMin, type);
     this.timerState = { completed: true, completedDuration: durationMin, completedType: type };
@@ -2933,18 +3215,21 @@ const App = {
   timerLogToCapture() {
     const ts = this.timerState;
     const noteEl = document.getElementById('timer-note');
-    const note = noteEl ? noteEl.value.trim() : '';
+    const note = (noteEl ? noteEl.value.trim() : '') || (this._timerNote || '').trim();
     const text = `Completed ${ts.completedDuration || 0}min ${ts.completedType || 'Study'} session${note ? ' — ' + note : ''}`;
     Store.update(d => d.captures.push({ id: uid(), text, created: Date.now() }));
     if (this.vaultAvailable) {
       VaultAPI.addCapture(text).catch(() => {});
     }
+    toast('Session logged to captures');
     this.timerState = {};
+    this._timerNote = '';
     this.render();
   },
 
   timerDismiss() {
     this.timerState = {};
+    this._timerNote = '';
     this.render();
   },
 
@@ -3206,6 +3491,33 @@ const App = {
       if (!d.weeklyReviewTags) return;
       d.weeklyReviewTags = d.weeklyReviewTags.filter(t => t !== tag);
     });
+    this.render();
+  },
+
+  async updateVaultPath() {
+    const input = document.getElementById('settings-vault-path');
+    const vaultPath = (input?.value || '').trim();
+    const useVault = !!vaultPath;
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vaultPath, useVault })
+    });
+    this.serverConfig = { ...this.serverConfig, vaultPath, useVault };
+    // Re-check vault availability
+    if (useVault) {
+      try {
+        const stats = await VaultAPI.getStats();
+        this.vaultAvailable = !!stats && !stats.vaultDisabled;
+        const vaultNav = document.querySelector('[data-view="vault"]');
+        if (vaultNav) vaultNav.style.display = '';
+      } catch { this.vaultAvailable = false; }
+    } else {
+      this.vaultAvailable = false;
+      const vaultNav = document.querySelector('[data-view="vault"]');
+      if (vaultNav) vaultNav.style.display = 'none';
+    }
+    toast(useVault ? 'Vault connected' : 'Vault disconnected');
     this.render();
   },
 

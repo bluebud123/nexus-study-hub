@@ -8,13 +8,30 @@ const url = require('url');
 
 const CONFIG = {
   port: 3456,
-  vaultPath: 'D:/Obsidian/A bullet journal',
+  vaultPath: '',
+  useVault: false,
   staticDir: __dirname,
   rapidLogFile: '02 Rapid logging.md',
   monthlyLogFile: '03 Monthly log.md',
   captureFile: '04 Quick captures.md',
   weeklyReviewFile: '05 Weekly Reviews.md',
 };
+
+// Load saved config from nexus-config.json
+const CONFIG_FILE = path.join(__dirname, 'nexus-config.json');
+try {
+  const saved = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+  if (saved.vaultPath) CONFIG.vaultPath = saved.vaultPath;
+  if (saved.useVault !== undefined) CONFIG.useVault = saved.useVault;
+  if (saved.rapidLogFile) CONFIG.rapidLogFile = saved.rapidLogFile;
+  if (saved.captureFile) CONFIG.captureFile = saved.captureFile;
+  if (saved.weeklyReviewFile) CONFIG.weeklyReviewFile = saved.weeklyReviewFile;
+} catch {}
+
+function saveConfig() {
+  const toSave = { vaultPath: CONFIG.vaultPath, useVault: CONFIG.useVault, setupComplete: true };
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(toSave, null, 2), 'utf8');
+}
 
 const MIME = {
   '.html': 'text/html',
@@ -601,6 +618,11 @@ async function handleAPI(req, res, pathname, query) {
   }
 
   try {
+    // Guard: vault APIs require vault to be enabled
+    if (pathname.startsWith('/api/vault/') && (!CONFIG.useVault || !CONFIG.vaultPath)) {
+      return jsonRes(res, { error: 'Vault not configured', vaultDisabled: true });
+    }
+
     // ── List Files ──
     if (pathname === '/api/vault/files' && method === 'GET') {
       const rel = query.path || '';
@@ -1060,6 +1082,36 @@ async function handleAPI(req, res, pathname, query) {
       return jsonRes(res, { success: true });
     }
 
+    // ── Config API ──
+    if (pathname === '/api/config' && method === 'GET') {
+      let setupComplete = false;
+      try { const s = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); setupComplete = !!s.setupComplete; } catch {}
+      return jsonRes(res, { vaultPath: CONFIG.vaultPath, useVault: CONFIG.useVault, setupComplete });
+    }
+
+    if (pathname === '/api/config' && method === 'POST') {
+      const body = await parseBody(req);
+      if (body.vaultPath !== undefined) CONFIG.vaultPath = body.vaultPath;
+      if (body.useVault !== undefined) CONFIG.useVault = !!body.useVault;
+      saveConfig();
+      return jsonRes(res, { success: true });
+    }
+
+    // ── Browse folders (for vault path picker) ──
+    if (pathname === '/api/browse-folders' && method === 'GET') {
+      const dir = query.path || (process.platform === 'win32' ? 'C:/' : '/');
+      try {
+        const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+        const folders = entries
+          .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+          .map(e => ({ name: e.name, path: path.join(dir, e.name).replace(/\\/g, '/') }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        return jsonRes(res, { current: dir.replace(/\\/g, '/'), folders, parent: path.dirname(dir).replace(/\\/g, '/') });
+      } catch {
+        return jsonRes(res, { current: dir, folders: [], parent: path.dirname(dir).replace(/\\/g, '/') });
+      }
+    }
+
     errRes(res, 'Not found', 404);
   } catch (err) {
     console.error('API Error:', err);
@@ -1093,5 +1145,5 @@ http.createServer(async (req, res) => {
   });
 }).listen(CONFIG.port, () => {
   console.log(`Nexus running at http://localhost:${CONFIG.port}`);
-  console.log(`Vault: ${CONFIG.vaultPath}`);
+  console.log(`Vault: ${CONFIG.useVault ? CONFIG.vaultPath : 'disabled'}`);
 });
