@@ -11,6 +11,8 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <button class="mobile-menu-btn" id="mobile-menu-btn" onclick="document.getElementById('sidebar').classList.toggle('open');document.getElementById('sidebar-overlay').classList.toggle('show');">&#9776;</button>
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="document.getElementById('sidebar').classList.remove('open');this.classList.remove('show');"></div>
   <nav id="sidebar">
     <div class="logo">
       <span class="logo-icon">&#9670;</span>
@@ -37,6 +39,9 @@
       </li>
       <li data-view="vault">
         <span class="nav-icon">&#128218;</span> Vault
+      </li>
+      <li data-view="calendar">
+        <span class="nav-icon">&#128197;</span> Calendar
       </li>
       <li data-view="growth">
         <span class="nav-icon">&#128200;</span> Growth

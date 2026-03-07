@@ -15,16 +15,35 @@ If Not fso.FileExists(scriptDir & "\server.js") Then
     WScript.Quit
 End If
 
-' Check if Node.js is installed
+' Find Node.js — try PATH first, then common locations
+nodePath = ""
+
+' Method 1: Check PATH
 On Error Resume Next
 Set nodeCheck = WshShell.Exec("node --version")
-nodeVersion = ""
 If Err.Number = 0 Then
     nodeVersion = Trim(nodeCheck.StdOut.ReadLine())
+    If nodeVersion <> "" Then nodePath = "node"
 End If
+Err.Clear
 On Error GoTo 0
 
-If nodeVersion = "" Then
+' Method 2: Check common install paths
+If nodePath = "" Then
+    Dim paths(3)
+    paths(0) = "C:\Program Files\nodejs\node.exe"
+    paths(1) = WshShell.ExpandEnvironmentStrings("%ProgramFiles%") & "\nodejs\node.exe"
+    paths(2) = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\Programs\node\node.exe"
+    paths(3) = WshShell.ExpandEnvironmentStrings("%APPDATA%") & "\..\Local\Programs\node\node.exe"
+    For Each p In paths
+        If fso.FileExists(p) Then
+            nodePath = """" & p & """"
+            Exit For
+        End If
+    Next
+End If
+
+If nodePath = "" Then
     result = MsgBox("Node.js is not installed on this computer." & vbCrLf & vbCrLf & _
                     "Nexus needs Node.js to run." & vbCrLf & vbCrLf & _
                     "Click YES to open the download page (choose LTS version)." & vbCrLf & _
@@ -45,12 +64,12 @@ On Error GoTo 0
 WScript.Sleep 1000
 
 ' Start the server (hidden window)
-WshShell.Run "cmd /c cd /d """ & scriptDir & """ && node server.js", 0, False
+WshShell.Run "cmd /c cd /d """ & scriptDir & """ && " & nodePath & " server.js", 0, False
 
 ' Wait for server to start
-WScript.Sleep 2000
+WScript.Sleep 2500
 
-' Check if server is actually running by trying the port
+' Check if server is actually running
 serverReady = False
 For i = 1 To 5
     On Error Resume Next

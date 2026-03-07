@@ -671,10 +671,13 @@ const Views = {
             `}
           ` : `
             <div class="timer-presets">
-              <button class="btn btn-primary btn-sm" onclick="App.startTimer(25, 'Pomodoro')">25m</button>
+              <button class="btn btn-primary btn-sm" onclick="App._pomodoroAuto=true; App._pomodoroCount=0; App.startTimer(25, 'Pomodoro')">25m</button>
               <button class="btn btn-ghost btn-sm" onclick="App.startTimer(45, 'Deep Work')">45m</button>
               <button class="btn btn-ghost btn-sm" onclick="App.startTimer(15, 'Short')">15m</button>
             </div>
+            <label style="font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:4px; cursor:pointer;">
+              <input type="checkbox" ${App._pomodoroAuto ? 'checked' : ''} onchange="App._pomodoroAuto=this.checked" style="accent-color:var(--accent);"> Auto-cycle (25-5-25-5-25-15)
+            </label>
             <div class="timer-custom-row">
               <input type="number" id="timer-custom-min" placeholder="Min" min="1" max="999" class="timer-custom-input"
                 onkeydown="if(event.key==='Enter'){App.startCustomTimer(); event.preventDefault();}">
@@ -929,6 +932,11 @@ const Views = {
         <input type="text" id="task-input" placeholder="Add a task..." style="flex:1;" onkeydown="if(event.key==='Enter')App.addTask()">
         <input type="text" id="task-category" placeholder="Category" style="max-width:100px;" onkeydown="if(event.key==='Enter')App.addTask()">
         <input type="date" id="task-due" class="strat-settings-input" style="max-width:130px;" title="Due date (optional)">
+        <select id="task-recurring" class="strat-settings-input" style="max-width:90px;" title="Repeat (optional)">
+          <option value="">Once</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+        </select>
         <button class="btn btn-primary" onclick="App.addTask()">Add</button>
       </div>
 
@@ -942,19 +950,38 @@ const Views = {
         <div class="item-list">
           ${tasks.map(t => {
             const overdue = t.due && !t.done && t.due < todayKey();
+            const subs = t.subtasks || [];
+            const subsDone = subs.filter(s => s.done).length;
+            const expanded = App._expandedTasks && App._expandedTasks[t.id];
             return `
-            <div class="item ${overdue ? 'task-overdue' : ''}">
+            <div class="item ${overdue ? 'task-overdue' : ''}" style="flex-wrap:wrap;">
               <div class="item-check ${t.done ? 'done' : ''}" onclick="App.toggleTask('${t.id}')"></div>
               <div class="item-body">
-                <div class="item-title ${t.done ? 'done' : ''}">${escapeHTML(t.text)}</div>
+                <div class="item-title ${t.done ? 'done' : ''}">${escapeHTML(t.text)}${subs.length ? ` <span style="font-size:11px; color:var(--text-dim);">(${subsDone}/${subs.length})</span>` : ''}</div>
                 <div class="item-meta">
                   ${t.category ? `<span class="tag tag-accent">${escapeHTML(t.category)}</span> ` : ''}
                   ${t.due ? `<span style="color:${overdue ? '#e74c3c' : 'var(--text-dim)'};">&#128197; ${t.due}</span> ` : ''}
+                  ${t.recurring ? `<span class="tag tag-green">${escapeHTML(t.recurring)}</span> ` : ''}
                   ${formatDate(t.created)}
                 </div>
               </div>
+              <button class="btn-ghost btn-sm" style="border:none; font-size:11px; padding:2px 6px; cursor:pointer;" onclick="App.toggleExpandTask('${t.id}')">${expanded ? '&#9660;' : '&#9654;'} sub</button>
               <button class="item-delete" onclick="App.deleteTask('${t.id}')">&times;</button>
-            </div>`;
+              ${expanded ? `
+                <div style="width:100%; padding-left:32px; margin-top:4px;">
+                  ${subs.map((s, i) => `
+                    <div style="display:flex; align-items:center; gap:8px; padding:3px 0; font-size:13px;">
+                      <div class="item-check ${s.done ? 'done' : ''}" style="width:16px; height:16px; border-width:1.5px;" onclick="App.toggleSubtask('${t.id}', ${i})"></div>
+                      <span class="${s.done ? 'done' : ''}" style="${s.done ? 'text-decoration:line-through; color:var(--text-dim);' : ''}">${escapeHTML(s.text)}</span>
+                      <button style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-size:14px; margin-left:auto;" onclick="App.deleteSubtask('${t.id}', ${i})">&times;</button>
+                    </div>
+                  `).join('')}
+                  <div style="display:flex; gap:6px; margin-top:4px;">
+                    <input type="text" id="subtask-${t.id}" placeholder="Add subtask..." style="flex:1; padding:4px 8px; font-size:12px;" onkeydown="if(event.key==='Enter')App.addSubtask('${t.id}')">
+                    <button class="btn btn-primary btn-sm" style="padding:2px 8px; font-size:11px;" onclick="App.addSubtask('${t.id}')">+</button>
+                  </div>
+                </div>
+              ` : ''}</div>`;
           }).join('')}
         </div>
       ` : `
@@ -1586,16 +1613,21 @@ const Views = {
       `;
     }
 
-    // Calendar heatmap (last 20 weeks)
+    // Study activity heatmap (last 20 weeks) — combines journal + timer sessions
     const today = new Date();
     const weeks = 20;
     const startDate = new Date(today);
     startDate.setDate(startDate.getDate() - (weeks * 7) + (7 - startDate.getDay()));
     const loggingSet = new Set(g.loggingDays || []);
 
+    // Build study minutes per day
+    const studyMap = {};
+    for (const s of (data.timer?.sessions || [])) {
+      studyMap[s.date] = (studyMap[s.date] || 0) + (s.duration || 0);
+    }
+
     let heatmapHTML = '<div class="heatmap-grid">';
     const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-    // Header
     heatmapHTML += '<div class="heatmap-labels">';
     for (const d of dayLabels) heatmapHTML += `<div class="heatmap-label">${d}</div>`;
     heatmapHTML += '</div>';
@@ -1607,14 +1639,26 @@ const Views = {
         cellDate.setDate(startDate.getDate() + w * 7 + d);
         const dateStr = cellDate.toISOString().slice(0, 10);
         const hasEntry = loggingSet.has(dateStr);
+        const studyMins = studyMap[dateStr] || 0;
         const isFuture = cellDate > today;
-        const level = isFuture ? 'future' : hasEntry ? 'active' : 'empty';
-        const title = `${dateStr}${hasEntry ? ' (logged)' : ''}`;
+        // Intensity: 0=empty, 1=light(logged or <30m), 2=medium(30-60m), 3=heavy(60m+)
+        let level = 'empty';
+        let title = dateStr;
+        if (isFuture) { level = 'future'; }
+        else if (studyMins >= 60) { level = 'l3'; title += ` — ${studyMins}min study`; }
+        else if (studyMins >= 30) { level = 'l2'; title += ` — ${studyMins}min study`; }
+        else if (studyMins > 0 || hasEntry) { level = 'l1'; title += hasEntry ? ' (logged)' : ` — ${studyMins}min`; }
         heatmapHTML += `<div class="heatmap-cell heatmap-${level}" title="${title}"></div>`;
       }
       heatmapHTML += '</div>';
     }
     heatmapHTML += '</div>';
+    heatmapHTML += `<div style="display:flex; gap:4px; align-items:center; margin-top:6px; font-size:10px; color:var(--text-dim);">
+      Less <div class="heatmap-cell heatmap-empty" style="width:12px;height:12px;display:inline-block;"></div>
+      <div class="heatmap-cell heatmap-l1" style="width:12px;height:12px;display:inline-block;"></div>
+      <div class="heatmap-cell heatmap-l2" style="width:12px;height:12px;display:inline-block;"></div>
+      <div class="heatmap-cell heatmap-l3" style="width:12px;height:12px;display:inline-block;"></div> More
+    </div>`;
 
     // Knowledge areas
     const areasHTML = (g.knowledgeAreas || []).map(a => {
@@ -1768,8 +1812,8 @@ const Views = {
                   <div class="stat-label">Tasks Done</div>
                 </div>
                 <div class="stat-card" style="padding:12px 8px;">
-                  <div class="stat-number" style="font-size:20px;">${wr.topTags.length}</div>
-                  <div class="stat-label">Tags Used</div>
+                  <div class="stat-number" style="font-size:20px;">${wr.totalStudyMin ? Math.round(wr.totalStudyMin / 60 * 10) / 10 + 'h' : wr.topTags.length}</div>
+                  <div class="stat-label">${wr.totalStudyMin !== undefined ? 'Study Time' : 'Tags Used'}</div>
                 </div>
               </div>
               ${wr.mostActiveDay ? `<div style="font-size:12px; color:var(--text-dim); margin-bottom:8px;">Most active: ${wr.mostActiveDay} (${wr.mostActiveLines} lines)</div>` : ''}
@@ -2083,10 +2127,13 @@ const Views = {
             `}
           ` : `
             <div class="timer-presets">
-              <button class="btn btn-primary" onclick="App.startTimer(25, 'Pomodoro')">25 min</button>
+              <button class="btn btn-primary" onclick="App._pomodoroAuto=true; App._pomodoroCount=0; App.startTimer(25, 'Pomodoro')">25 min</button>
               <button class="btn btn-ghost" onclick="App.startTimer(45, 'Deep Work')">45 min</button>
               <button class="btn btn-ghost" onclick="App.startTimer(15, 'Short')">15 min</button>
             </div>
+            <label style="font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:4px; cursor:pointer; margin-top:4px;">
+              <input type="checkbox" ${App._pomodoroAuto ? 'checked' : ''} onchange="App._pomodoroAuto=this.checked" style="accent-color:var(--accent);"> Auto-cycle (25-5-25-5-25-15)
+            </label>
             <div class="timer-custom-row">
               <input type="number" id="timer-custom-min" placeholder="Min" min="1" max="999" class="timer-custom-input"
                 onkeydown="if(event.key==='Enter'){App.startCustomTimer(); event.preventDefault();}">
@@ -2182,6 +2229,93 @@ const Views = {
           </div>
         ` : '<div class="empty-state"><div class="empty-text">No results found.</div></div>'}
       ` : '<div class="empty-state"><div class="empty-text">Start typing to search...</div></div>'}
+    `;
+  },
+
+  // ─── Calendar View ──────────────────────────
+  calendar() {
+    const data = Store.get();
+    const now = new Date();
+    const viewMonth = App._calMonth ?? now.getMonth();
+    const viewYear = App._calYear ?? now.getFullYear();
+    const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const monthName = new Date(viewYear, viewMonth).toLocaleString('en', { month: 'long', year: 'numeric' });
+    const todayStr = todayKey();
+
+    // Build data maps for the month
+    const journalMap = {};
+    for (const j of data.journal) { journalMap[j.date] = true; }
+    const taskMap = {};
+    for (const t of data.tasks) {
+      if (t.due) { if (!taskMap[t.due]) taskMap[t.due] = []; taskMap[t.due].push(t); }
+    }
+    const sessionMap = {};
+    for (const s of (data.timer?.sessions || [])) {
+      if (!sessionMap[s.date]) sessionMap[s.date] = 0;
+      sessionMap[s.date] += s.duration || 0;
+    }
+
+    let cells = '';
+    // Empty cells before first day
+    for (let i = 0; i < firstDay; i++) cells += '<div class="cal-cell cal-empty"></div>';
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const isToday = dateStr === todayStr;
+      const hasJournal = journalMap[dateStr];
+      const dueTasks = taskMap[dateStr] || [];
+      const studyMins = sessionMap[dateStr] || 0;
+      const dots = [];
+      if (hasJournal) dots.push('var(--green)');
+      if (dueTasks.length) dots.push('var(--red)');
+      if (studyMins > 0) dots.push('var(--accent)');
+
+      cells += `
+        <div class="cal-cell ${isToday ? 'cal-today' : ''}" onclick="App._calSelected='${dateStr}'; App.render();">
+          <div class="cal-day">${d}</div>
+          ${dots.length ? `<div class="cal-dots">${dots.map(c => `<span class="cal-dot" style="background:${c};"></span>`).join('')}</div>` : ''}
+        </div>`;
+    }
+
+    // Selected day detail
+    const sel = App._calSelected || todayStr;
+    const selTasks = (taskMap[sel] || []);
+    const selStudy = sessionMap[sel] || 0;
+    const selJournal = journalMap[sel];
+    const selSessions = (data.timer?.sessions || []).filter(s => s.date === sel);
+
+    return `
+      <h1 class="view-title">Calendar</h1>
+      <p class="view-subtitle">Overview of your month</p>
+
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <button class="btn btn-ghost btn-sm" onclick="App._calMonth=${viewMonth === 0 ? 11 : viewMonth - 1}; App._calYear=${viewMonth === 0 ? viewYear - 1 : viewYear}; App.render();">&laquo; Prev</button>
+          <strong style="font-size:16px;">${monthName}</strong>
+          <button class="btn btn-ghost btn-sm" onclick="App._calMonth=${viewMonth === 11 ? 0 : viewMonth + 1}; App._calYear=${viewMonth === 11 ? viewYear + 1 : viewYear}; App.render();">Next &raquo;</button>
+        </div>
+        <div class="cal-grid">
+          <div class="cal-header">Su</div><div class="cal-header">Mo</div><div class="cal-header">Tu</div>
+          <div class="cal-header">We</div><div class="cal-header">Th</div><div class="cal-header">Fr</div><div class="cal-header">Sa</div>
+          ${cells}
+        </div>
+        <div style="display:flex; gap:12px; margin-top:8px; font-size:11px; color:var(--text-dim);">
+          <span><span class="cal-dot" style="background:var(--green); display:inline-block;"></span> Journal</span>
+          <span><span class="cal-dot" style="background:var(--red); display:inline-block;"></span> Tasks due</span>
+          <span><span class="cal-dot" style="background:var(--accent); display:inline-block;"></span> Study</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="strat-section-label">${sel}</div>
+        ${selStudy > 0 ? `<div style="font-size:13px; margin-bottom:6px;">&#128337; Study: <strong>${selStudy}min</strong> (${selSessions.length} session${selSessions.length !== 1 ? 's' : ''})</div>` : ''}
+        ${selTasks.length ? `
+          <div style="font-size:13px; margin-bottom:6px;">&#128203; Tasks due:</div>
+          ${selTasks.map(t => `<div style="font-size:13px; padding:2px 0; color:${t.done ? 'var(--green)' : 'var(--text)'};">${t.done ? '&#10003;' : '&#9675;'} ${escapeHTML(t.text)}</div>`).join('')}
+        ` : ''}
+        ${selJournal ? `<div style="font-size:13px; color:var(--green);">&#9998; Journal entry logged</div>` : ''}
+        ${!selStudy && !selTasks.length && !selJournal ? `<div style="font-size:13px; color:var(--text-dim);">No activity on this day</div>` : ''}
+      </div>
     `;
   },
 
@@ -2370,6 +2504,7 @@ const App = {
     // Apply saved theme
     const savedTheme = Store.get().theme || 'dark';
     if (savedTheme === 'light') document.body.classList.add('light');
+    this._checkRecurringTasks();
     this.bindNav();
     this.bindExport();
     this.render();
@@ -2571,6 +2706,9 @@ const App = {
         this.currentView = li.dataset.view;
         document.querySelectorAll('#nav-links li').forEach(l => l.classList.remove('active'));
         li.classList.add('active');
+        // Close mobile sidebar
+        document.getElementById('sidebar')?.classList.remove('open');
+        document.getElementById('sidebar-overlay')?.classList.remove('show');
         // Load vault files when entering vault view
         if (li.dataset.view === 'vault' && this.vaultMode === 'browse') {
           this.render();
@@ -2691,18 +2829,23 @@ const App = {
     const input = document.getElementById('task-input');
     const catInput = document.getElementById('task-category');
     const dueInput = document.getElementById('task-due');
+    const recurInput = document.getElementById('task-recurring');
     const text = input.value.trim();
     if (!text) return;
     const category = catInput.value.trim();
     const due = dueInput?.value || '';
-    Store.update(d => d.tasks.push({ id: uid(), text, category, due, done: false, created: Date.now() }));
+    const recurring = recurInput?.value || '';
+    Store.update(d => d.tasks.push({ id: uid(), text, category, due, recurring, done: false, created: Date.now() }));
     this.render();
   },
 
   toggleTask(id) {
     Store.update(d => {
       const task = d.tasks.find(t => t.id === id);
-      if (task) task.done = !task.done;
+      if (task) {
+        task.done = !task.done;
+        if (task.done && task.recurring) task.lastCompleted = todayKey();
+      }
     });
     this.render();
   },
@@ -2712,6 +2855,68 @@ const App = {
     Store.update(d => d.tasks = d.tasks.filter(t => t.id !== id));
     toast('Task deleted');
     this.render();
+  },
+
+  // ─── Subtasks ──────────────────────────────────
+  _expandedTasks: {},
+
+  toggleExpandTask(id) {
+    this._expandedTasks[id] = !this._expandedTasks[id];
+    this.render();
+  },
+
+  addSubtask(taskId) {
+    const input = document.getElementById('subtask-' + taskId);
+    const text = input?.value.trim();
+    if (!text) return;
+    Store.update(d => {
+      const t = d.tasks.find(x => x.id === taskId);
+      if (t) {
+        if (!t.subtasks) t.subtasks = [];
+        t.subtasks.push({ text, done: false });
+      }
+    });
+    this.render();
+  },
+
+  toggleSubtask(taskId, idx) {
+    Store.update(d => {
+      const t = d.tasks.find(x => x.id === taskId);
+      if (t && t.subtasks && t.subtasks[idx]) t.subtasks[idx].done = !t.subtasks[idx].done;
+    });
+    this.render();
+  },
+
+  deleteSubtask(taskId, idx) {
+    Store.update(d => {
+      const t = d.tasks.find(x => x.id === taskId);
+      if (t && t.subtasks) t.subtasks.splice(idx, 1);
+    });
+    this.render();
+  },
+
+  // ─── Recurring Tasks ──────────────────────────
+  _checkRecurringTasks() {
+    const data = Store.get();
+    const today = todayKey();
+    let changed = false;
+    for (const t of data.tasks) {
+      if (!t.recurring || !t.done) continue;
+      // Check if task was completed before today (needs reset)
+      const doneDate = t.lastCompleted || '';
+      if (doneDate < today) {
+        t.done = false;
+        changed = true;
+      }
+    }
+    if (changed) Store.update(d => {
+      for (const t of d.tasks) {
+        if (t.recurring && t.done) {
+          const doneDate = t.lastCompleted || '';
+          if (doneDate < today) t.done = false;
+        }
+      }
+    });
   },
 
   setTaskFilter(f) {
@@ -2726,12 +2931,17 @@ const App = {
 
   async toggleVaultTask(source, line) {
     try {
-      await VaultAPI.toggleTask(source, line);
+      const result = await VaultAPI.toggleTask(source, line);
+      if (result.error) {
+        toast('Vault error: ' + result.error);
+        return;
+      }
       // Refresh vault tasks
       this.vaultTasks = await VaultAPI.getTasks();
       this.render();
+      toast('Task toggled');
     } catch (err) {
-      alert('Could not toggle task: ' + (err.message || 'Error'));
+      toast('Could not toggle vault task — check vault connection');
     }
   },
 
@@ -2940,12 +3150,77 @@ const App = {
   },
 
   async generateWeeklyReview() {
-    try {
-      this.weeklyReview = await VaultAPI.getWeeklyReview();
-      this.render();
-    } catch (err) {
-      alert('Could not generate review: ' + (err.message || 'Error'));
+    // Try vault-based review first, fall back to local data
+    if (this.vaultAvailable) {
+      try {
+        this.weeklyReview = await VaultAPI.getWeeklyReview();
+        this.render();
+        return;
+      } catch {}
     }
+    // Local data summary
+    const data = Store.get();
+    const now = new Date();
+    const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7);
+    const weekStr = weekAgo.toISOString().slice(0, 10);
+
+    // Journal entries this week
+    const journalThisWeek = data.journal.filter(j => j.date >= weekStr);
+    const totalWords = journalThisWeek.reduce((s, j) => s + (j.text || '').split(/\s+/).length, 0);
+    const daysLogged = new Set(journalThisWeek.map(j => j.date)).size;
+
+    // Tasks completed this week
+    const tasksCompleted = data.tasks.filter(t => t.done).length;
+
+    // Timer sessions this week
+    const sessions = (data.timer?.sessions || []).filter(s => s.date >= weekStr);
+    const totalStudyMin = sessions.reduce((s, x) => s + (x.duration || 0), 0);
+
+    // Captures this week — extract tags
+    const capturesThisWeek = data.captures.filter(c => new Date(c.created) >= weekAgo);
+    const tagCounts = {};
+    for (const c of capturesThisWeek) {
+      const tags = (c.text.match(/#\w+/g) || []);
+      for (const tag of tags) tagCounts[tag.slice(1)] = (tagCounts[tag.slice(1)] || 0) + 1;
+    }
+    for (const j of journalThisWeek) {
+      const tags = (j.text || '').match(/#\w+/g) || [];
+      for (const tag of tags) tagCounts[tag.slice(1)] = (tagCounts[tag.slice(1)] || 0) + 1;
+    }
+    const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([tag, count]) => ({ tag, count }));
+
+    // Most active day
+    const dayWordMap = {};
+    for (const j of journalThisWeek) {
+      dayWordMap[j.date] = (dayWordMap[j.date] || 0) + (j.text || '').split(/\s+/).length;
+    }
+    let mostActiveDay = '', mostActiveLines = 0;
+    for (const [day, wc] of Object.entries(dayWordMap)) {
+      if (wc > mostActiveLines) { mostActiveDay = day; mostActiveLines = wc; }
+    }
+
+    // Lessons from custom tags
+    const reviewTags = data.weeklyReviewTags || ['lesson', 'people', 'food'];
+    const lessons = [];
+    for (const j of journalThisWeek) {
+      const lines = (j.text || '').split('\n');
+      for (const line of lines) {
+        for (const tag of reviewTags) {
+          if (line.toLowerCase().includes('#' + tag)) {
+            lessons.push({ date: j.date, text: line.replace(/#\w+/g, '').trim() });
+            break;
+          }
+        }
+      }
+    }
+
+    this.weeklyReview = {
+      daysLogged, totalWords, tasksCompleted, topTags,
+      mostActiveDay, mostActiveLines,
+      lessons: lessons.slice(0, 10),
+      totalStudyMin, sessionCount: sessions.length
+    };
+    this.render();
   },
 
   // ─── Vault Actions ──────────────────────────
@@ -3163,6 +3438,8 @@ const App = {
     if (this.timerState.interval) clearInterval(this.timerState.interval);
     this.timerState = {};
     this._timerNote = '';
+    this._pomodoroAuto = false;
+    this._pomodoroCount = 0;
     this.render();
   },
 
@@ -3197,6 +3474,10 @@ const App = {
     }
   },
 
+  // Pomodoro cycle: 25 focus → 5 break → 25 focus → 5 break → 25 focus → 15 long break
+  _pomodoroCount: 0,
+  _pomodoroAuto: false,
+
   completeTimer() {
     if (this.timerState.interval) clearInterval(this.timerState.interval);
     const duration = this.timerState.total || 0;
@@ -3208,6 +3489,34 @@ const App = {
       d.timer.sessions.push({ date: todayKey(), duration: durationMin, type, ts: Date.now(), note });
     });
     this._timerNotify(durationMin, type);
+
+    // Auto-cycle pomodoro
+    if (this._pomodoroAuto && type.includes('Pomodoro')) {
+      this._pomodoroCount++;
+      this.timerState = { completed: true, completedDuration: durationMin, completedType: type };
+      this.render();
+      // Auto-start break after 2 seconds
+      setTimeout(() => {
+        if (this._pomodoroAuto) {
+          const isLongBreak = this._pomodoroCount % 4 === 0;
+          const breakMin = isLongBreak ? 15 : 5;
+          this.startTimer(breakMin, `${isLongBreak ? 'Long' : 'Short'} Break`, 'countdown');
+        }
+      }, 2000);
+      return;
+    }
+    if (this._pomodoroAuto && type.includes('Break')) {
+      this.timerState = { completed: true, completedDuration: durationMin, completedType: type };
+      this.render();
+      // Auto-start next focus after 2 seconds
+      setTimeout(() => {
+        if (this._pomodoroAuto) {
+          this.startTimer(25, 'Pomodoro', 'countdown');
+        }
+      }, 2000);
+      return;
+    }
+
     this.timerState = { completed: true, completedDuration: durationMin, completedType: type };
     this.render();
   },

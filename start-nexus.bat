@@ -2,25 +2,58 @@
 title Nexus Server
 cd /d "%~dp0"
 
-:: Check Node is installed
-where node >nul 2>nul
-if %errorlevel% neq 0 (
-    echo ============================================
-    echo   Node.js is NOT installed on this computer
-    echo ============================================
-    echo.
-    echo To run Nexus, you need Node.js installed.
-    echo.
-    echo 1. Go to https://nodejs.org
-    echo 2. Download the LTS version
-    echo 3. Install it (just click Next through the installer)
-    echo 4. Restart your computer
-    echo 5. Double-click this file again
-    echo.
-    pause
-    exit /b 1
+:: Try to find Node.js
+set "NODE_CMD=node"
+
+:: Method 1: Check if node is in PATH
+node --version >nul 2>nul
+if %errorlevel% equ 0 goto :node_found
+
+:: Method 2: Check common install locations
+if exist "C:\Program Files\nodejs\node.exe" (
+    set "NODE_CMD=C:\Program Files\nodejs\node.exe"
+    goto :node_found
+)
+if exist "%APPDATA%\fnm\node-versions" (
+    for /f "delims=" %%d in ('dir /b /o-n "%APPDATA%\fnm\node-versions" 2^>nul') do (
+        if exist "%APPDATA%\fnm\node-versions\%%d\installation\node.exe" (
+            set "NODE_CMD=%APPDATA%\fnm\node-versions\%%d\installation\node.exe"
+            goto :node_found
+        )
+    )
+)
+if exist "%ProgramFiles%\nodejs\node.exe" (
+    set "NODE_CMD=%ProgramFiles%\nodejs\node.exe"
+    goto :node_found
+)
+if exist "%LOCALAPPDATA%\Programs\node\node.exe" (
+    set "NODE_CMD=%LOCALAPPDATA%\Programs\node\node.exe"
+    goto :node_found
 )
 
+:: Method 3: Try where as last resort
+for /f "delims=" %%i in ('where node 2^>nul') do (
+    set "NODE_CMD=%%i"
+    goto :node_found
+)
+
+:: Node not found
+echo ============================================
+echo   Node.js is NOT installed on this computer
+echo ============================================
+echo.
+echo To run Nexus, you need Node.js installed.
+echo.
+echo 1. Go to https://nodejs.org
+echo 2. Download the LTS version
+echo 3. Install it (just click Next through the installer)
+echo 4. Restart your computer
+echo 5. Double-click this file again
+echo.
+pause
+exit /b 1
+
+:node_found
 :: Check server.js exists
 if not exist "server.js" (
     echo ERROR: server.js not found in %cd%
@@ -29,30 +62,11 @@ if not exist "server.js" (
     exit /b 1
 )
 
-:: Kill any existing process on port 3456 (try multiple times)
-echo Checking port 3456...
-set "KILLED=0"
+:: Kill any existing process on port 3456
 for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr ":3456 " ^| findstr "LISTENING"') do (
-    echo Killing existing process on port 3456 (PID %%a)...
     taskkill /PID %%a /F >nul 2>nul
-    set "KILLED=1"
 )
-if "%KILLED%"=="1" (
-    echo Waiting for port to free up...
-    timeout /t 2 /nobreak >nul
-)
-
-:: Verify port is now free
-set "PORT_BUSY=0"
-for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr ":3456 " ^| findstr "LISTENING"') do (
-    set "PORT_BUSY=1"
-)
-if "%PORT_BUSY%"=="1" (
-    echo ERROR: Port 3456 is still in use by another program.
-    echo Close that program first, or restart your computer.
-    pause
-    exit /b 1
-)
+timeout /t 1 /nobreak >nul
 
 echo.
 echo ========================================
@@ -66,7 +80,7 @@ echo.
 start "" /b cmd /c "timeout /t 2 /nobreak >nul && start http://localhost:3456"
 
 :: Start the server
-node server.js
+"%NODE_CMD%" server.js
 
 :: If we get here, server crashed or was stopped
 echo.
@@ -75,8 +89,4 @@ echo   Nexus server stopped.
 echo ========================================
 echo.
 echo If this was unexpected, check above for error messages.
-echo Common fixes:
-echo   - Make sure no other program is using port 3456
-echo   - Try running: node server.js (manually)
-echo.
 pause
