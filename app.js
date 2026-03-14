@@ -15,6 +15,8 @@ const Store = {
       tasks: [],
       journal: [],
       goals: [],
+      checklists: [],
+      _topicsImportDismissed: false,
       streak: { lastDate: null, count: 0 },
       strategy: {
         milestones: DEFAULT_MILESTONES,
@@ -22,6 +24,9 @@ const Store = {
         notes: {},
         examDate: '2026-11-01',
         schedule: [...WEEKLY_TEMPLATE],
+        projects: [
+          { id: 'proj-exam', name: "Master's Exam", deadline: '2026-11-01', color: '#E8453C', icon: '📖' }
+        ],
       },
       timer: { sessions: [] },
       habits: { definitions: [], log: {} },
@@ -31,6 +36,8 @@ const Store = {
       autoWeeklyExport: true,
       lastWeeklyExport: null,
       weeklyReviewTags: ['lesson', 'people', 'food'],
+      scheduleLog: {},
+      dashboardLayout: ['strategy-banner', 'stats-grid', 'open-tasks', 'recent-captures', 'suggestions', 'vault-insights', 'tag-cloud'],
     };
   },
 
@@ -40,6 +47,15 @@ const Store = {
     merged.strategy = { ...defaults.strategy, ...(saved.strategy || {}) };
     merged.timer = { ...defaults.timer, ...(saved.timer || {}) };
     merged.habits = { ...defaults.habits, ...(saved.habits || {}) };
+    if (!merged.scheduleLog) merged.scheduleLog = {};
+    if (!merged.dashboardLayout) merged.dashboardLayout = defaults.dashboardLayout;
+    if (!merged.checklists) merged.checklists = [];
+    if (typeof merged._topicsImportDismissed === 'undefined') merged._topicsImportDismissed = false;
+    if (!merged.strategy.projects || !merged.strategy.projects.length) {
+      merged.strategy.projects = [
+        { id: 'proj-exam', name: "Master's Exam", deadline: merged.strategy.examDate || '2026-11-01', color: '#E8453C', icon: '📖' }
+      ];
+    }
     return merged;
   },
 
@@ -385,6 +401,32 @@ function updateStreak() {
   });
 }
 
+// ── Checklist MD Parser ──────────────────────────
+function parseChecklistMD(text, fallbackName) {
+  const lines = text.split('\n');
+  let name = fallbackName || 'Checklist';
+  const sections = [];
+  let cur = null;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (line.startsWith('# ') && !line.startsWith('## ')) {
+      name = line.slice(2).trim();
+    } else if (line.startsWith('## ')) {
+      cur = { name: line.slice(3).trim(), items: [] };
+      sections.push(cur);
+    } else {
+      const m = line.match(/^(?:\d+\.|[-*])\s+(.+)/);
+      if (m) {
+        if (!cur) { cur = { name: 'General', items: [] }; sections.push(cur); }
+        const t = m[1].trim();
+        const tag = t.startsWith('[AI]') ? 'AI' : null;
+        cur.items.push({ id: uid(), text: tag ? t.slice(4).trim() : t, tag, status: 'not-started', revisions: [] });
+      }
+    }
+  }
+  return { id: uid(), name, projectId: null, uploadedAt: Date.now(), sections };
+}
+
 // ── Views ──────────────────────────────────────────
 
 const Views = {
@@ -393,13 +435,43 @@ const Views = {
   dashboard() {
     const data = Store.get();
     const openTasks = data.tasks.filter(t => !t.done).length;
-    const doneTasks = data.tasks.filter(t => t.done).length;
+    const doneTasks = App.vaultStats ? App.vaultStats.completedTasks : data.tasks.filter(t => t.done).length;
     const totalCaptures = data.captures.length;
-    const journalEntries = data.journal.length;
+    const journalEntries = App.vaultStats ? App.vaultStats.totalDailyEntries : data.journal.length;
     const activeGoals = data.goals.length;
+
+    // Compute real activity streak — same sources as Calendar view
+    const activityDays = new Set();
+    for (const j of data.journal) { if (j.date) activityDays.add(j.date); }
+    for (const s of (data.timer?.sessions || [])) { if (s.date) activityDays.add(s.date); }
+    for (const c of data.captures) {
+      const d = new Date(c.created).toISOString().slice(0, 10);
+      activityDays.add(d);
+    }
+    for (const e of (App.vaultDailyEntries || [])) { if (e.date) activityDays.add(e.date); }
+    for (const [date, log] of Object.entries(data.scheduleLog || {})) {
+      if (Object.values(log).some(v => v)) activityDays.add(date);
+    }
+    for (const [date, log] of Object.entries((data.habits?.log) || {})) {
+      if (Object.values(log).some(v => v)) activityDays.add(date);
+    }
+    let currentStreak = 0;
+    const streakCheck = new Date();
+    for (let i = 0; i < 365; i++) {
+      const dk = streakCheck.toISOString().slice(0, 10);
+      if (activityDays.has(dk)) { currentStreak++; streakCheck.setDate(streakCheck.getDate() - 1); }
+      else break;
+    }
 
     const recentCaptures = data.captures.slice(-3).reverse();
     const recentTasks = data.tasks.filter(t => !t.done).slice(-5).reverse();
+
+    // Vault open tasks — #active only
+    const vaultOpenTasks = [];
+    if (App.vaultTasks) {
+      vaultOpenTasks.push(...(App.vaultTasks.active || []).slice(0, 5));
+    }
+    const vaultPending = App.vaultTasks ? App.vaultTasks.summary.pending : 0;
 
     // Strategy summary
     const strat = data.strategy;
@@ -410,121 +482,129 @@ const Views = {
     const examDate = new Date(strat.examDate || '2026-11-01');
     const daysLeft = Math.max(0, Math.ceil((examDate - new Date()) / 864e5));
 
-    return `
-      <h1 class="view-title">Dashboard</h1>
-      <p class="view-subtitle">Your personal command center</p>
+    const layout = data.dashboardLayout || ['strategy-banner', 'stats-grid', 'open-tasks', 'recent-captures', 'suggestions', 'vault-insights', 'tag-cloud'];
 
-      ${data.streak.count > 0 ? `
-        <div class="streak-display">
-          <span class="streak-fire">&#128293;</span>
-          ${data.streak.count} day streak — keep it going!
-        </div>
-      ` : ''}
+    function dashCard(key, content) {
+      if (!content) return '';
+      return `<div class="dash-card" draggable="true" data-card="${key}"
+        ondragstart="App.onDashDragStart(event, '${key}')"
+        ondragover="event.preventDefault(); this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="this.classList.remove('drag-over'); App.onDashDrop(event, '${key}')">${content}</div>`;
+    }
 
-      <!-- Strategy Banner -->
-      <div class="card dash-strategy-banner">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-          <div>
-            <div style="font-size:12px; color:var(--text-dim); font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Exam Countdown</div>
-            <div style="font-size:28px; font-weight:700; color:${STREAMS.exam.color};">${daysLeft} <span style="font-size:14px; color:var(--text-dim);">days</span></div>
-            <div style="margin-top:4px;"><input type="date" class="strat-settings-input" value="${strat.examDate || '2026-11-01'}" onchange="Store.update(d => d.strategy.examDate = this.value); App.render();" style="font-size:11px; padding:2px 6px; width:auto;"></div>
-          </div>
-          <div style="text-align:right;">
-            <div style="font-size:12px; color:var(--text-dim); margin-bottom:4px;">Milestones: ${stratDone}/${stratTotal}</div>
-            <div class="progress-bar" style="width:160px;">
-              <div class="progress-fill" style="width:${stratPct}%; background:${STREAMS.exam.color};"></div>
+    const cardRenderers = {
+      'strategy-banner': () => {
+        const s = Store.get().strategy;
+        const projects = s.projects || [];
+        const allMs = Object.values(s.milestones).flat();
+        const doneMs = allMs.filter(m => m.done).length;
+        const examDate = new Date(s.examDate || (projects[0]?.deadline) || '2026-11-01');
+        return `
+        <div class="card dash-strategy-banner">
+          <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:stretch;">
+            ${projects.map(proj => {
+              const dl = new Date(proj.deadline);
+              const dLeft = Math.max(0, Math.ceil((dl - new Date()) / 864e5));
+              return `
+              <div style="flex:1; min-width:120px; padding:12px 16px; background:${proj.color}15; border:1px solid ${proj.color}40; border-radius:10px;">
+                <div style="font-size:10px; color:${proj.color}; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">${escapeHTML(proj.icon || '')} ${escapeHTML(proj.name)}</div>
+                <div style="font-size:28px; font-weight:800; color:${proj.color}; line-height:1.1; margin:4px 0;">${dLeft}</div>
+                <div style="font-size:11px; color:var(--text-dim);">days left</div>
+              </div>`;
+            }).join('')}
+            <div style="flex:1; min-width:120px; padding:12px 16px; background:var(--bg-card); border:1px solid var(--border); border-radius:10px;">
+              <div style="font-size:10px; color:var(--text-dim); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Milestones</div>
+              <div style="font-size:28px; font-weight:800; color:var(--green); line-height:1.1; margin:4px 0;">${doneMs}/${allMs.length}</div>
+              <div class="progress-bar" style="margin-top:6px;"><div class="progress-fill" style="width:${allMs.length ? Math.round(doneMs/allMs.length*100) : 0}%; background:var(--green);"></div></div>
             </div>
           </div>
-        </div>
-      </div>
+        </div>`;
+      },
 
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-number">${openTasks}</div>
-          <div class="stat-label">Open Tasks</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-number">${doneTasks}</div>
-          <div class="stat-label">Completed</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-number">${totalCaptures}</div>
-          <div class="stat-label">Captures</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-number">${journalEntries}</div>
-          <div class="stat-label">Journal Entries</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-number">${activeGoals}</div>
-          <div class="stat-label">Goals</div>
-        </div>
-      </div>
-
-      <h3 style="margin-bottom:12px; font-size:16px; color:var(--text-dim);">Open Tasks</h3>
-      ${recentTasks.length ? `
-        <div class="item-list" style="margin-bottom:28px;">
-          ${recentTasks.map(t => `
-            <div class="item">
-              <div class="item-check ${t.done ? 'done' : ''}" onclick="App.toggleTask('${t.id}')"></div>
-              <div class="item-body">
-                <div class="item-title ${t.done ? 'done' : ''}">${escapeHTML(t.text)}</div>
-                <div class="item-meta">${t.category ? `<span class="tag tag-accent">${escapeHTML(t.category)}</span> ` : ''}${timeAgo(t.created)}</div>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      ` : '<div class="empty-state" style="padding:20px;"><div class="empty-text">No open tasks. Add one from Tasks (T) or capture and convert!</div></div>'}
-
-      <h3 style="margin-bottom:12px; font-size:16px; color:var(--text-dim);">Recent Captures</h3>
-      ${recentCaptures.length ? `
-        <div class="capture-grid">
-          ${recentCaptures.map(c => `
-            <div class="capture-card">
-              <div class="capture-text">${escapeHTML(c.text)}</div>
-              <div class="capture-time">${timeAgo(c.created)}</div>
-            </div>
-          `).join('')}
-        </div>
-      ` : '<div class="empty-state" style="padding:20px;"><div class="empty-text">Nothing captured yet. Press C to start capturing thoughts!</div></div>'}
-
-      ${App.vaultAvailable && App.vaultSuggestions && App.vaultSuggestions.suggestions && App.vaultSuggestions.suggestions.length > 0 ? `
-        <div class="card" style="border-left: 3px solid var(--amber); margin-top:20px;">
-          <div class="strat-section-label">Nexus Suggests</div>
-          ${App.vaultSuggestions.suggestions.map(s => `
-            <div class="suggestion-item">
-              <span class="suggestion-icon">${s.icon}</span>
-              <span class="suggestion-text">${escapeHTML(s.text)}</span>
-              ${s.action === 'log' ? '<button class="btn btn-ghost btn-sm" onclick="document.querySelector(\'[data-view=capture]\').click()">Log</button>' : ''}
-              ${s.action === 'review_tasks' ? '<button class="btn btn-ghost btn-sm" onclick="document.querySelector(\'[data-view=tasks]\').click()">Review</button>' : ''}
-              ${s.action === 'monthly_review' ? '<button class="btn btn-ghost btn-sm" onclick="App.openVaultFile(\'03 Monthly log.md\')">Reflect</button>' : ''}
-            </div>
-          `).join('')}
-        </div>
-      ` : ''}
-
-      ${App.vaultAvailable && App.vaultStats ? `
-        <h3 style="margin:20px 0 12px; font-size:16px; color:var(--text-dim);">Vault Insights</h3>
+      'stats-grid': () => `
         <div class="stats-grid">
-          <div class="stat-card" onclick="document.querySelector('[data-view=vault]').click()" style="cursor:pointer;">
-            <div class="stat-number" style="color:var(--green);">${App.vaultStats.totalFiles}</div>
-            <div class="stat-label">Vault Files</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number">${App.vaultStats.totalDailyEntries}</div>
-            <div class="stat-label">Daily Entries</div>
-          </div>
-          <div class="stat-card" onclick="document.querySelector('[data-view=tasks]').click()" style="cursor:pointer;">
-            <div class="stat-number">${App.vaultTasks ? App.vaultTasks.summary.pending : App.vaultStats.pendingTasks}</div>
-            <div class="stat-label">Vault Pending</div>
-          </div>
-          <div class="stat-card" onclick="document.querySelector('[data-view=growth]').click()" style="cursor:pointer;">
-            <div class="stat-number">${App.vaultStats.entriesThisWeek}</div>
-            <div class="stat-label">This Week</div>
-          </div>
-        </div>
+          <div class="stat-card"><div class="stat-number">${App.vaultTasks ? App.vaultTasks.summary.activeCount : openTasks}</div><div class="stat-label">Open Tasks <span style="font-size:10px; color:var(--text-dim);">(active)</span></div></div>
+          <div class="stat-card"><div class="stat-number">${doneTasks}</div><div class="stat-label">Completed</div></div>
+          <div class="stat-card"><div class="stat-number">${totalCaptures}</div><div class="stat-label">Captures</div></div>
+          <div class="stat-card"><div class="stat-number">${journalEntries}</div><div class="stat-label">Journal</div></div>
+          <div class="stat-card"><div class="stat-number">${activeGoals}</div><div class="stat-label">Goals</div></div>
+        </div>`,
 
-        ${Object.keys(App.vaultStats.tagCounts || {}).length > 0 ? `
+      'open-tasks': () => `
+        <h3 style="margin-bottom:12px; font-size:16px; color:var(--text-dim);">Open Tasks</h3>
+        ${vaultOpenTasks.length ? `
+          <div class="item-list" style="margin-bottom:28px;">
+            ${vaultOpenTasks.map(t => {
+              const safeSource = t.source ? t.source.replace(/'/g, "\\'") : '';
+              return `<div class="item">
+                <div class="item-check ${t.done ? 'done' : ''}" onclick="App.toggleVaultTask('${safeSource}', ${t.line})"></div>
+                <div class="item-body">
+                  <div class="item-title">${escapeHTML(t.text)}</div>
+                  <div class="item-meta"><span class="vtask-source">vault</span>${t.dueDate ? ` <span class="vtask-due">${t.dueDate}</span>` : ''}</div>
+                </div>
+              </div>`;
+            }).join('')}
+          </div>
+        ` : '<div class="empty-state" style="padding:20px;"><div class="empty-text">No open tasks.</div></div>'}`,
+
+      'recent-captures': () => `
+        <h3 style="margin-bottom:12px; font-size:16px; color:var(--text-dim);">Recent Captures</h3>
+        ${recentCaptures.length ? `
+          <div class="capture-grid">
+            ${recentCaptures.map(c => `
+              <div class="capture-card">
+                <div class="capture-text">${escapeHTML(c.text)}</div>
+                <div class="capture-time">${timeAgo(c.created)}</div>
+              </div>
+            `).join('')}
+          </div>
+        ` : '<div class="empty-state" style="padding:20px;"><div class="empty-text">Nothing captured yet.</div></div>'}`,
+
+      'suggestions': () => {
+        if (!App.vaultAvailable || !App.vaultSuggestions || !App.vaultSuggestions.suggestions || !App.vaultSuggestions.suggestions.length) return '';
+        return `
+          <div class="card" style="border-left: 3px solid var(--amber);">
+            <div class="strat-section-label">Nexus Suggests</div>
+            ${App.vaultSuggestions.suggestions.map(s => `
+              <div class="suggestion-item">
+                <span class="suggestion-icon">${s.icon}</span>
+                <span class="suggestion-text">${escapeHTML(s.text)}</span>
+                ${s.action === 'log' ? '<button class="btn btn-ghost btn-sm" onclick="document.querySelector(\'[data-view=capture]\').click()">Log</button>' : ''}
+                ${s.action === 'review_tasks' ? '<button class="btn btn-ghost btn-sm" onclick="document.querySelector(\'[data-view=tasks]\').click()">Review</button>' : ''}
+                ${s.action === 'monthly_review' ? '<button class="btn btn-ghost btn-sm" onclick="App.openVaultFile(\'03 Monthly log.md\')">Reflect</button>' : ''}
+              </div>
+            `).join('')}
+          </div>`;
+      },
+
+      'vault-insights': () => {
+        if (!App.vaultAvailable || !App.vaultStats) return '';
+        return `
+          <h3 style="margin:20px 0 12px; font-size:16px; color:var(--text-dim);">Vault Insights</h3>
+          <div class="stats-grid">
+            <div class="stat-card" onclick="document.querySelector('[data-view=vault]').click()" style="cursor:pointer;">
+              <div class="stat-number" style="color:var(--green);">${App.vaultStats.totalFiles}</div>
+              <div class="stat-label">Vault Files</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-number">${App.vaultStats.totalDailyEntries}</div>
+              <div class="stat-label">Daily Entries</div>
+            </div>
+            <div class="stat-card" onclick="document.querySelector('[data-view=tasks]').click()" style="cursor:pointer;">
+              <div class="stat-number">${App.vaultTasks ? App.vaultTasks.summary.pending : App.vaultStats.pendingTasks}</div>
+              <div class="stat-label">Vault Pending</div>
+            </div>
+            <div class="stat-card" onclick="document.querySelector('[data-view=growth]').click()" style="cursor:pointer;">
+              <div class="stat-number">${App.vaultStats.entriesThisWeek}</div>
+              <div class="stat-label">This Week</div>
+            </div>
+          </div>`;
+      },
+
+      'tag-cloud': () => {
+        if (!App.vaultAvailable || !App.vaultStats || !Object.keys(App.vaultStats.tagCounts || {}).length) return '';
+        return `
           <div class="card">
             <div class="strat-section-label">Top Tags</div>
             <div class="vault-tag-cloud">
@@ -533,12 +613,31 @@ const Views = {
                 .slice(0, 15)
                 .map(([tag, count]) => {
                   const size = count > 50 ? 'lg' : count > 15 ? 'md' : 'sm';
-                  return `<span class="vault-tag vault-tag-${size}" onclick="App.currentView='vault';App.vaultSearchByTag('${tag}')">#${escapeHTML(tag)} <small>${count}</small></span>`;
+                  return `<span class="vault-tag vault-tag-${size}" onclick="App.vaultSearchByTag('${tag}')">#${escapeHTML(tag)} <small>${count}</small></span>`;
                 }).join(' ')}
             </div>
-          </div>
-        ` : ''}
+          </div>`;
+      },
+    };
+
+    const cardsHTML = layout
+      .filter(key => cardRenderers[key])
+      .map(key => dashCard(key, cardRenderers[key]()))
+      .filter(html => html)
+      .join('');
+
+    return `
+      <h1 class="view-title">Dashboard</h1>
+      <p class="view-subtitle">Your personal command center</p>
+
+      ${currentStreak > 0 ? `
+        <div class="streak-display">
+          <span class="streak-fire">&#128293;</span>
+          ${currentStreak} day streak — keep it going!
+        </div>
       ` : ''}
+
+      <div id="dashboard-cards">${cardsHTML}</div>
     `;
   },
 
@@ -576,9 +675,17 @@ const Views = {
 
     // Schedule
     const userSchedule = data.strategy.schedule || WEEKLY_TEMPLATE;
-    const scheduleHTML = userSchedule.map(slot => {
+    const schedLog = data.scheduleLog || {};
+    const todaySchedLog = schedLog[todayDate] || {};
+    const schedDone = Object.keys(todaySchedLog).filter(k => todaySchedLog[k]).length;
+    const scheduleHTML = userSchedule.map((slot, idx) => {
+      const checked = todaySchedLog['slot-' + idx];
       const color = slot.stream === 'exam' ? STREAMS.exam.color : slot.stream === 'flex' ? 'var(--accent)' : 'var(--text-dim)';
-      return `<div class="today-sched-row"><span class="today-sched-time" style="color:${color};">${slot.time}</span><span>${escapeHTML(slot.activity)}</span></div>`;
+      return `<div class="today-sched-row ${checked ? 'sched-done' : ''}" style="align-items:center;">
+        <input type="checkbox" class="sched-check" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); App.toggleScheduleSlot(${idx})" style="accent-color:${color}; cursor:pointer; flex-shrink:0;">
+        <span class="today-sched-time" style="color:${color};">${slot.time}</span>
+        <span class="${checked ? 'sched-activity-done' : ''}">${escapeHTML(slot.activity)}</span>
+      </div>`;
     }).join('');
 
     function miniTaskItem(t, isVault) {
@@ -640,6 +747,7 @@ const Views = {
       <!-- Study Timer -->
       <div class="card timer-card">
         <div class="strat-section-label">Study Timer</div>
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">Start a timer to log study sessions. Sessions appear in Growth &gt; Session History.</div>
         <div class="timer-display">
           <div class="timer-progress-ring">
             <svg viewBox="0 0 100 100" width="120" height="120">
@@ -662,11 +770,11 @@ const Views = {
               oninput="App._timerNote=this.value">
             ${ts.running ? `
               <button class="btn btn-ghost btn-sm" onclick="App.pauseTimer()">Pause</button>
-              ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary btn-sm" onclick="App.stopTimer()">Stop</button>` : ''}
+              ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary btn-sm" onclick="App.stopTimer()">Stop</button>` : `<button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="App.stopCountdownEarly()">Stop Early</button>`}
               <button class="btn btn-ghost btn-sm" onclick="App.resetTimer()">Reset</button>
             ` : `
               <button class="btn btn-primary btn-sm" onclick="App.resumeTimer()">Resume</button>
-              ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary btn-sm" onclick="App.stopTimer()">Stop</button>` : ''}
+              ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary btn-sm" onclick="App.stopTimer()">Stop</button>` : `<button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="App.stopCountdownEarly()">Stop Early</button>`}
               <button class="btn btn-ghost btn-sm" onclick="App.resetTimer()">Reset</button>
             `}
           ` : `
@@ -687,28 +795,47 @@ const Views = {
           `}
         </div>
         ${ts.type && !ts.completed ? `<div style="font-size:11px; color:var(--text-dim); text-align:center; margin-top:4px;">${ts.type}${ts.mode === 'stopwatch' ? ' (counting up)' : ''}</div>` : ''}
+        ${(() => {
+          const todaySessions = (data.timer?.sessions || []).filter(s => s.date === todayDate);
+          const todayStudyMins = todaySessions.reduce((sum, s) => sum + (s.duration || 0), 0);
+          if (!todaySessions.length) return '';
+          return `<div style="font-size:12px; color:var(--text-dim); text-align:center; margin-top:8px; border-top:1px solid var(--border); padding-top:8px;">
+            Today: ${todayStudyMins}min across ${todaySessions.length} session${todaySessions.length !== 1 ? 's' : ''}
+            ${todaySessions.map(s => `<span class="tag-badge-sm">${s.duration}m ${escapeHTML(s.type || '')}</span>`).join(' ')}
+          </div>`;
+        })()}
       </div>
 
       <!-- Habits -->
-      ${habits.definitions.length > 0 ? `
+      ${habits.definitions.length > 0 ? (() => {
+        const totalHabits = habits.definitions.length;
+        const doneHabits = habits.definitions.filter(h => todayHabitLog[h.id]).length;
+        const habitPct = totalHabits ? Math.round((doneHabits / totalHabits) * 100) : 0;
+        return `
         <div class="card">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
             <div class="strat-section-label" style="margin:0;">Habits</div>
             <span class="vtask-source" onclick="App.showHabitEditor=!App.showHabitEditor; App.render();">Edit</span>
           </div>
+          <div class="habit-progress">
+            <div class="progress-bar" style="height:4px; flex:1;">
+              <div class="progress-fill" style="width:${habitPct}%; background:var(--green);"></div>
+            </div>
+            <span style="font-size:11px; color:var(--text-dim);">${doneHabits}/${totalHabits} today</span>
+          </div>
           <div class="habits-row">
             ${habits.definitions.map(h => {
               const checked = todayHabitLog[h.id];
               const streak = habitStreak(h.id);
-              return `<div class="habit-item ${checked ? 'habit-done' : ''}" onclick="App.toggleHabit('${h.id}')">
+              return `<div class="habit-item ${checked ? 'habit-done habit-just-checked' : ''}" onclick="App.toggleHabit('${h.id}')">
                 <span class="habit-icon">${h.icon || '&#9744;'}</span>
                 <span class="habit-name">${escapeHTML(h.name)}</span>
-                ${streak > 1 ? `<span class="habit-streak">${streak}d</span>` : ''}
+                ${streak > 1 ? `<span class="habit-streak"><span class="habit-streak-fire">&#128293;</span>${streak}d</span>` : ''}
               </div>`;
             }).join('')}
           </div>
-        </div>
-      ` : `
+        </div>`;
+      })() : `
         <div class="card" style="text-align:center; padding:12px;">
           <span style="font-size:13px; color:var(--text-dim);">No habits tracked yet.</span>
           <button class="btn btn-ghost btn-sm" onclick="App.showHabitEditor=true; App.render();" style="margin-left:8px;">Add Habits</button>
@@ -789,8 +916,31 @@ const Views = {
 
         <!-- Schedule -->
         <div class="card">
-          <div class="strat-section-label">Schedule</div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <div class="strat-section-label" style="margin:0;">Schedule</div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--text-dim);">${schedDone}/${userSchedule.length}</span>
+              <span class="vtask-source" onclick="App._editSchedule=!App._editSchedule; App.render();">${App._editSchedule ? 'Done' : 'Edit'}</span>
+            </div>
+          </div>
           ${scheduleHTML}
+          ${App._editSchedule ? `
+            <div style="margin-top:8px; border-top:1px solid var(--border); padding-top:8px;">
+              <div class="strat-settings-row" style="margin-top:4px;">
+                <input type="text" id="sched-new-time" class="strat-settings-input" placeholder="Time (e.g. 7:00 AM)" style="width:100px;">
+                <input type="text" id="sched-new-activity" class="strat-settings-input" placeholder="Activity" style="flex:1;"
+                  onkeydown="if(event.key==='Enter')App.addScheduleSlot()">
+                <button class="btn btn-primary btn-sm" onclick="App.addScheduleSlot()">Add</button>
+              </div>
+              ${userSchedule.map((slot, idx) => `
+                <div class="strat-settings-row" style="margin-top:4px;">
+                  <span style="font-size:12px; color:var(--text-dim); min-width:70px;">${slot.time}</span>
+                  <span style="font-size:12px; flex:1;">${escapeHTML(slot.activity)}</span>
+                  <button class="btn btn-ghost btn-sm" onclick="App.removeScheduleSlot(${idx})" style="color:var(--red);">&times;</button>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
         </div>
       </div>
 
@@ -1001,7 +1151,7 @@ const Views = {
             <span class="filter-tab ${vtab==='active'?'active':''}" onclick="App.setVaultTaskTab('active')">Active (${vtSummary.activeCount})</span>
             <span class="filter-tab ${vtab==='exam'?'active':''}" onclick="App.setVaultTaskTab('exam')">Exam (${vtSummary.examCount})</span>
             <span class="filter-tab ${vtab==='backlog'?'active':''}" onclick="App.setVaultTaskTab('backlog')">Backlog (${vtSummary.backlogCount})</span>
-            ${vtSummary.otherCount > 0 ? `<span class="filter-tab ${vtab==='other'?'active':''}" onclick="App.setVaultTaskTab('other')">Other (${vtSummary.otherCount})</span>` : ''}
+            <span class="filter-tab ${vtab==='other'?'active':''}" onclick="App.setVaultTaskTab('other')">Other (${vtSummary.otherCount})</span>
             <span class="filter-tab ${vtab==='archived'?'active':''}" onclick="App.setVaultTaskTab('archived')">Done (${vtSummary.done})</span>
           </div>
 
@@ -1132,7 +1282,8 @@ const Views = {
   strategy() {
     const data = Store.get();
     const s = data.strategy;
-    const month = App.strategyMonth || 'feb';
+    const _curMonthKey = new Date().toLocaleString('en', { month: 'short' }).toLowerCase();
+    const month = App.strategyMonth || (STRATEGY_MONTHS.find(m => m.key === _curMonthKey) ? _curMonthKey : STRATEGY_MONTHS[0].key);
     const tab = App.strategyTab || 'roadmap';
     const mIdx = STRATEGY_MONTHS.findIndex(m => m.key === month);
     const mLabel = STRATEGY_MONTHS[mIdx]?.label || month;
@@ -1188,16 +1339,30 @@ const Views = {
 
         <!-- Allocation Card -->
         <div class="card">
-          <div class="strat-section-label">Time Allocation \u2014 ${mLabel} 2026</div>
-          <div class="strat-alloc-bar">${allocBar(curAlloc)}</div>
-          <div class="strat-alloc-legend">
+          ${(() => {
+            const total = Object.values(curAlloc).reduce((a,b) => a + (b||0), 0);
+            return `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <div class="strat-section-label" style="margin-bottom:0;">Time Allocation — ${mLabel} 2026</div>
+              <span style="font-size:12px; font-weight:700; color:${total===100?'var(--green)':'var(--accent)'};">${total}%</span>
+            </div>
+            <div class="strat-alloc-bar" style="margin-bottom:14px;">${allocBar(curAlloc)}</div>
             ${Object.entries(STREAMS).map(([k, st]) => `
-              <span class="strat-legend-item">
-                <span class="strat-legend-dot" style="background:${st.color};"></span>
-                ${st.icon} ${st.name} (${curAlloc[k] || 0}%)
-              </span>
+              <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                <span style="font-size:12px; min-width:120px; display:flex; align-items:center; gap:6px; color:var(--text-dim); flex-shrink:0;">
+                  <span style="width:8px; height:8px; border-radius:50%; background:${st.color}; display:inline-block; flex-shrink:0;"></span>
+                  ${st.icon} ${st.name}
+                </span>
+                <input type="range" min="0" max="100" value="${curAlloc[k]||0}"
+                  oninput="App.liveAllocVal('${month}','${k}',+this.value)"
+                  onchange="App.saveStratAlloc('${month}','${k}',+this.value)"
+                  style="flex:1; accent-color:${st.color}; cursor:pointer; height:4px;">
+                <span id="alloc-val-${month}-${k}" style="font-size:13px; font-weight:700; min-width:36px; text-align:right; color:${st.color};">${curAlloc[k]||0}%</span>
+              </div>
             `).join('')}
-          </div>
+            ${total !== 100 ? `<div style="font-size:11px; color:var(--accent); margin-top:2px; text-align:right;">⚠ Total should equal 100%</div>` : ''}
+            `;
+          })()}
         </div>
 
         <!-- Milestones Card -->
@@ -1209,11 +1374,24 @@ const Views = {
 
           <div id="strat-add-form" style="display:none; margin-bottom:16px; padding:14px; background:var(--bg-input); border-radius:8px;">
             <input type="text" id="strat-ms-text" placeholder="What needs to happen?">
-            <div style="display:flex; gap:8px; margin-top:8px;">
-              <select id="strat-ms-stream" style="flex:1;">
-                ${Object.entries(STREAMS).map(([k, st]) => `<option value="${k}">${st.icon} ${st.name}</option>`).join('')}
-              </select>
-              <select id="strat-ms-priority" style="flex:1;">
+            <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+              <input type="text" id="strat-ms-stream" list="strat-ms-stream-list"
+                placeholder="Project / stream (optional)"
+                style="flex:2; min-width:140px;">
+              <datalist id="strat-ms-stream-list">
+                ${(() => {
+                  const seen = new Set();
+                  const opts = [];
+                  for (const p of (s.projects||[])) {
+                    if (!seen.has(p.name)) { seen.add(p.name); opts.push(`<option value="${p.name}">`); }
+                  }
+                  for (const [k,st] of Object.entries(STREAMS)) {
+                    if (!seen.has(st.name)) { seen.add(st.name); opts.push(`<option value="${st.name}">`); }
+                  }
+                  return opts.join('');
+                })()}
+              </datalist>
+              <select id="strat-ms-priority" style="flex:1; min-width:100px;">
                 <option value="critical">Critical</option>
                 <option value="high" selected>High</option>
                 <option value="medium">Medium</option>
@@ -1230,7 +1408,16 @@ const Views = {
           ` : `
             <div class="item-list">
               ${curMs.map((m, idx) => {
-                const st = STREAMS[m.stream] || STREAMS.exam;
+                // Resolve stream: check projects first, then STREAMS by key, then STREAMS by name, then plain label
+                const projMatch = (s.projects||[]).find(p => p.name === m.stream || p.id === m.stream);
+                const streamKey = Object.keys(STREAMS).find(k => STREAMS[k].name === m.stream || k === m.stream);
+                const st = projMatch
+                  ? { icon: projMatch.icon, name: projMatch.name, color: projMatch.color }
+                  : streamKey
+                    ? STREAMS[streamKey]
+                    : m.stream
+                      ? { icon: '📌', name: m.stream, color: 'var(--text-dim)' }
+                      : { icon: '📌', name: 'General', color: 'var(--text-dim)' };
                 return `
                   <div class="item strat-milestone ${m.done ? 'strat-done' : ''}" draggable="true"
                     ondragstart="App.onMilestoneDragStart(event, '${month}', ${idx})"
@@ -1242,7 +1429,7 @@ const Views = {
                     <div class="item-body">
                       <div class="item-title ${m.done ? 'done' : ''}">${escapeHTML(m.text)}</div>
                       <div class="item-meta">
-                        <span style="color:${st.color}; font-weight:600;">${st.icon} ${st.name}</span>
+                        ${m.stream ? `<span style="color:${st.color}; font-weight:600;">${st.icon} ${escapeHTML(st.name)}</span>` : ''}
                         ${priorityBadge(m.priority)}
                       </div>
                     </div>
@@ -1273,63 +1460,40 @@ const Views = {
           `).join('')}
         </div>
       `;
-    } else if (tab === 'weekly') {
-      tabContent = `
-        <div class="card">
-          <div class="strat-section-label">Ideal Weekday Schedule</div>
-          ${(s.schedule || WEEKLY_TEMPLATE).map((slot, i) => {
-            const color = slot.stream === 'exam' ? STREAMS.exam.color : slot.stream === 'flex' ? 'var(--accent)' : 'var(--text-dim)';
-            return `
-              <div class="strat-schedule-row">
-                <span class="strat-time" style="color:${color};">${slot.time}</span>
-                <span class="strat-activity">${escapeHTML(slot.activity)}</span>
-              </div>
-            `;
-          }).join('')}
-        </div>
-        <div class="card" style="border-left:3px solid var(--amber); background:rgba(251,191,36,0.05);">
-          <div style="font-size:13px; font-weight:700; color:var(--amber); margin-bottom:6px;">Synergy Tip</div>
-          <div style="font-size:13px; line-height:1.6; color:var(--text);">
-            Your spine expertise from Scoliox work directly boosts exam performance. When studying Spine topics, you're investing in both streams. Prioritize Spine chapters in Feb-Mar to maximize this overlap.
-          </div>
-        </div>
-      `;
-    } else if (tab === 'rules') {
-      tabContent = `
-        <div class="card">
-          <div class="strat-section-label">If-Then Decision Framework</div>
-          ${DECISION_RULES.map(r => `
-            <div class="strat-rule">
-              <span class="strat-rule-icon">${r.icon}</span>
-              <div>
-                <div style="font-size:13px; font-weight:600; margin-bottom:2px;">IF: ${escapeHTML(r.trigger)}</div>
-                <div style="font-size:13px; color:${STREAMS.exam.color}; font-weight:600;">THEN: ${escapeHTML(r.action)}</div>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-        <div class="card" style="background:linear-gradient(135deg, #1a1a2e, #16213e); border:none;">
-          <div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:rgba(255,255,255,0.4); margin-bottom:8px;">Golden Rule</div>
-          <div style="font-size:14px; line-height:1.7; color:rgba(255,255,255,0.9);">
-            You can publish a paper in December. You can only sit this exam on schedule. When in doubt \u2014 choose exam prep. Your deep spine expertise and analytical thinking from AI work give you edges that pure-exam candidates don't have. Execute with discipline.
-          </div>
-        </div>
-      `;
     } else if (tab === 'settings') {
       const examDateVal = s.examDate || '2026-11-01';
       const examPreview = new Date(examDateVal).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
       const userSched = s.schedule || WEEKLY_TEMPLATE;
 
       tabContent = `
-        <!-- Exam Date -->
+        <!-- Projects -->
         <div class="card">
-          <div class="strat-section-label">Exam Date</div>
-          <div class="strat-settings-form">
-            <div class="strat-settings-row">
-              <input type="date" id="settings-exam-date" class="strat-settings-input" value="${examDateVal}">
-              <button class="btn btn-primary btn-sm" onclick="App.saveExamDate()">Save</button>
-            </div>
-            <div class="strat-date-preview">${examPreview} &mdash; ${daysLeft} days away</div>
+          <div class="strat-section-label">Projects &amp; Deadlines</div>
+          <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
+            ${(s.projects || []).map((proj, pIdx) => `
+              <div style="display:flex; align-items:center; gap:8px; padding:8px; background:var(--bg-input); border-radius:8px;">
+                <input type="text" value="${escapeHTML(proj.icon || '')}" placeholder="🎯"
+                  style="width:36px; text-align:center; background:transparent; border:1px solid var(--border); border-radius:6px; color:var(--text); padding:4px;"
+                  onchange="App.updateProject(${pIdx}, 'icon', this.value)">
+                <input type="text" value="${escapeHTML(proj.name)}" placeholder="Project name"
+                  style="flex:1; background:transparent; border:1px solid var(--border); border-radius:6px; color:var(--text); padding:4px 8px; font-size:13px;"
+                  onchange="App.updateProject(${pIdx}, 'name', this.value)">
+                <input type="date" value="${proj.deadline || ''}"
+                  class="strat-settings-input" style="width:140px;"
+                  onchange="App.updateProject(${pIdx}, 'deadline', this.value)">
+                <input type="color" value="${proj.color || '#7c6ff7'}"
+                  style="width:32px; height:32px; border:none; background:none; cursor:pointer; border-radius:6px;"
+                  onchange="App.updateProject(${pIdx}, 'color', this.value)">
+                ${(s.projects || []).length > 1 ? `<button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="App.deleteProject('${proj.id}')">&#10005;</button>` : ''}
+              </div>
+            `).join('')}
+          </div>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <input type="text" id="new-proj-icon" placeholder="🎯" style="width:36px; text-align:center; padding:4px;" class="strat-settings-input">
+            <input type="text" id="new-proj-name" placeholder="Project name" style="flex:1; min-width:120px;" class="strat-settings-input">
+            <input type="date" id="new-proj-deadline" class="strat-settings-input" style="width:140px;">
+            <input type="color" id="new-proj-color" value="#7c6ff7" style="width:32px; height:32px; border:none; background:none; cursor:pointer; border-radius:6px;">
+            <button class="btn btn-primary btn-sm" onclick="App.addProject()">+ Add</button>
           </div>
         </div>
 
@@ -1363,74 +1527,249 @@ const Views = {
           </div>
           <button class="btn btn-ghost btn-sm" onclick="App.addScheduleSlot()" style="margin-top:8px;">+ Add Slot</button>
         </div>
+
+        <!-- Weekly Schedule View -->
+        <div class="card">
+          <div class="strat-section-label">Weekly Schedule</div>
+          ${(s.schedule || WEEKLY_TEMPLATE).map(slot => {
+            const color = slot.stream === 'exam' ? STREAMS.exam.color : slot.stream === 'flex' ? 'var(--accent)' : 'var(--text-dim)';
+            return `<div class="strat-schedule-row">
+              <span class="strat-time" style="color:${color};">${slot.time}</span>
+              <span class="strat-activity">${escapeHTML(slot.activity)}</span>
+            </div>`;
+          }).join('')}
+        </div>
       `;
-    } else if (tab === 'topics') {
-      const topics = data.topics || [];
-      const categories = [...new Set(topics.map(t => t.category || 'Uncategorized'))].sort();
+    } else if (tab === 'projects') {
+      const checklists = data.checklists || [];
+      const stratProjects = s.projects || [];
+
+      // Topics import banner
+      const showImportBanner = (data.topics || []).length > 0
+        && !data._topicsImportDismissed
+        && !checklists.find(c => c._fromTopics);
+
+      // Active project
+      const activeId = App.strategyProject || checklists[0]?.id || null;
+      const activeCL = checklists.find(c => c.id === activeId);
+
       const statusColors = { 'not-started': 'var(--text-dim)', weak: 'var(--red)', moderate: 'var(--amber)', strong: 'var(--green)' };
-      const total = topics.length;
-      const studied = topics.filter(t => t.status !== 'not-started').length;
-      const weak = topics.filter(t => t.status === 'weak').length;
-      const strong = topics.filter(t => t.status === 'strong').length;
 
       tabContent = `
-        <!-- Topic Summary -->
-        ${total > 0 ? `
-          <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom:16px;">
-            <div class="stat-card" style="padding:10px;">
-              <div class="stat-number" style="font-size:18px;">${total}</div>
-              <div class="stat-label">Topics</div>
-            </div>
-            <div class="stat-card" style="padding:10px;">
-              <div class="stat-number" style="font-size:18px; color:var(--accent);">${total > 0 ? Math.round(studied / total * 100) : 0}%</div>
-              <div class="stat-label">Covered</div>
-            </div>
-            <div class="stat-card" style="padding:10px;">
-              <div class="stat-number" style="font-size:18px; color:var(--red);">${weak}</div>
-              <div class="stat-label">Weak</div>
-            </div>
-            <div class="stat-card" style="padding:10px;">
-              <div class="stat-number" style="font-size:18px; color:var(--green);">${strong}</div>
-              <div class="stat-label">Strong</div>
+        ${showImportBanner ? `
+          <div style="margin-bottom:16px; padding:12px 16px; background:var(--amber)15; border:1px solid var(--amber)40; border-radius:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <div style="font-size:13px;">📋 You have <strong>${(data.topics||[]).length} topics</strong> from the old Topics tracker. Import them as a Project?</div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-primary btn-sm" onclick="App.importTopicsAsProject()">Import</button>
+              <button class="btn btn-ghost btn-sm" onclick="App.dismissTopicsImport()">Dismiss</button>
             </div>
           </div>
         ` : ''}
 
-        <!-- Add Topic -->
-        <div class="card">
-          <div class="strat-section-label">Add Topic</div>
-          <div class="strat-settings-row">
-            <input type="text" id="topic-name-input" class="strat-settings-input" placeholder="Topic name" style="flex:1;"
-              onkeydown="if(event.key==='Enter')App.addTopic()">
-            <input type="text" id="topic-category-input" class="strat-settings-input" placeholder="Category" style="width:120px;">
-            <button class="btn btn-primary btn-sm" onclick="App.addTopic()">Add</button>
+        <!-- Project pills nav -->
+        <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:20px;">
+          ${checklists.map(cl => {
+            const linked = stratProjects.find(p => p.id === cl.projectId);
+            const allItems = cl.sections.flatMap(sec => sec.items);
+            const revDone = allItems.filter(it => (it.revisions||[]).length > 0 || it.done).length;
+            const isActive = cl.id === activeId;
+            return `<button
+              class="strat-month-pill ${isActive ? 'active' : ''}"
+              onclick="App.setStrategyProject('${cl.id}')"
+              style="${isActive ? `border-color:${linked?.color || 'var(--accent)'};` : ''}">
+              ${escapeHTML(linked?.icon || cl.icon || '📋')} ${escapeHTML(cl.name)}
+              <span style="font-size:10px; opacity:0.7; margin-left:4px;">${revDone}/${allItems.length}</span>
+            </button>`;
+          }).join('')}
+
+          <!-- + Add button -->
+          <div style="position:relative; display:inline-block;">
+            <button class="strat-month-pill" onclick="App._projAddOpen=!App._projAddOpen; App.render();" style="color:var(--accent); border-color:var(--accent); font-weight:700;">+ Add</button>
+            ${App._projAddOpen ? `
+              <div style="position:absolute; top:36px; left:0; z-index:100; background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:10px; min-width:220px; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+                <button class="btn btn-primary" style="width:100%; margin-bottom:8px;" onclick="App._projAddOpen=false; App.uploadChecklist()">⬆ Upload .md file</button>
+                <div style="display:flex; gap:6px;">
+                  <input type="text" id="blank-proj-name" placeholder="Project name" class="strat-settings-input" style="flex:1;">
+                  <button class="btn btn-ghost btn-sm" onclick="App.addBlankProject(document.getElementById('blank-proj-name')?.value)">✎ Blank</button>
+                </div>
+                <button class="btn btn-ghost btn-sm" style="width:100%; margin-top:6px; font-size:11px;" onclick="App._projAddOpen=false; App.render();">Cancel</button>
+              </div>
+            ` : ''}
           </div>
-          ${total === 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.loadTopicPreset()" style="margin-top:8px;">Load Ortho Exam Preset</button>` : ''}
         </div>
 
-        <!-- Topics by Category -->
-        ${categories.map(cat => {
-          const catTopics = topics.filter(t => (t.category || 'Uncategorized') === cat);
-          return `
-            <div class="card">
-              <div class="strat-section-label">${escapeHTML(cat)} (${catTopics.length})</div>
-              <div class="topic-grid">
-                ${catTopics.map(t => `
-                  <div class="topic-item topic-${t.status}" onclick="App.cycleTopicStatus('${t.id}')">
-                    <div class="topic-status-dot" style="background:${statusColors[t.status]};"></div>
-                    <div class="topic-info">
-                      <div class="topic-name">${escapeHTML(t.name)}</div>
-                      <div class="topic-meta">${t.status.replace('-', ' ')}${t.lastStudied ? ' &middot; ' + t.lastStudied : ''}</div>
-                    </div>
-                    <button class="btn btn-ghost btn-sm topic-delete" onclick="event.stopPropagation(); App.deleteTopic('${t.id}')">&times;</button>
-                  </div>
-                `).join('')}
+        ${!activeCL ? `
+          <div class="empty-state">
+            <div class="empty-icon">📋</div>
+            <div class="empty-text">No projects yet — upload a .md file or create a blank project</div>
+            <details style="margin-top:16px; text-align:left; max-width:420px;">
+              <summary style="font-size:12px; color:var(--accent); cursor:pointer;">ⓘ Supported .md format</summary>
+              <div style="margin-top:8px; padding:12px; background:var(--bg-input); border-radius:8px; font-size:12px; color:var(--text-dim); line-height:1.8;">
+                <code style="color:var(--accent);"># Project Name</code> — checklist title<br>
+                <code style="color:var(--accent);">## Section</code> — section group<br>
+                <code style="color:var(--accent);">1. Item text</code> — checkable item<br>
+                <code style="color:var(--accent);">2. [AI] Item</code> — shows AI badge<br>
+                <code style="color:var(--accent);">- Bullet also works</code>
               </div>
+            </details>
+          </div>
+        ` : (() => {
+          const allItems = activeCL.sections.flatMap(sec => sec.items);
+          const revDone = allItems.filter(it => (it.revisions||[]).length > 0 || it.done).length;
+          const pct = allItems.length ? Math.round(revDone / allItems.length * 100) : 0;
+          const linkedProj = stratProjects.find(p => p.id === activeCL.projectId);
+          const daysLeft = linkedProj ? Math.max(0, Math.ceil((new Date(linkedProj.deadline) - new Date()) / 864e5)) : null;
+          const captureTag = activeCL.captureTag || '#study';
+          const isEditingProj = App._editingProject === activeCL.id;
+
+          return `
+            <!-- Project header card -->
+            <div class="card" style="margin-bottom:16px;">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <div style="flex:1;">
+                  ${isEditingProj ? `
+                    <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                      <input id="edit-proj-icon" value="${escapeHTML(activeCL.icon||'📋')}" style="width:40px; text-align:center; padding:4px;" class="strat-settings-input">
+                      <input id="edit-proj-name" value="${escapeHTML(activeCL.name)}" style="flex:1; min-width:140px;" class="strat-settings-input"
+                        onkeydown="if(event.key==='Enter') App.saveEditProject('${activeCL.id}', document.getElementById('edit-proj-name').value, document.getElementById('edit-proj-icon').value)">
+                      <button class="btn btn-primary btn-sm" onclick="App.saveEditProject('${activeCL.id}', document.getElementById('edit-proj-name').value, document.getElementById('edit-proj-icon').value)">Save</button>
+                      <button class="btn btn-ghost btn-sm" onclick="App._editingProject=null; App.render();">Cancel</button>
+                    </div>
+                  ` : `
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span style="font-size:16px; font-weight:700;">${escapeHTML(activeCL.icon||linkedProj?.icon||'📋')} ${escapeHTML(activeCL.name)}</span>
+                      <button onclick="App.startEditProject('${activeCL.id}')" title="Rename project" style="background:none; border:none; cursor:pointer; color:var(--text-dim); font-size:13px; opacity:0.6;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">✎</button>
+                    </div>
+                    <div style="font-size:11px; color:var(--text-dim); margin-top:3px;">
+                      ${linkedProj ? `<span style="color:${linkedProj.color}; font-weight:600;">${escapeHTML(linkedProj.name)}</span> · ${daysLeft} days left · ` : ''}
+                      ${revDone}/${allItems.length} reviewed
+                    </div>
+                  `}
+                </div>
+                <div style="display:flex; gap:6px; align-items:center;">
+                  <select class="strat-settings-input" style="font-size:11px; padding:3px 6px;" onchange="App.linkChecklist('${activeCL.id}', this.value)">
+                    <option value="">No deadline</option>
+                    ${stratProjects.map(p => `<option value="${p.id}" ${activeCL.projectId === p.id ? 'selected' : ''}>${escapeHTML(p.icon||'')} ${escapeHTML(p.name)}</option>`).join('')}
+                  </select>
+                  <button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="App.deleteChecklist('${activeCL.id}')">🗑</button>
+                </div>
+              </div>
+              <div class="progress-bar"><div class="progress-fill" style="width:${pct}%; background:var(--green);"></div></div>
+              <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">${pct}% reviewed</div>
+            </div>
+
+            <!-- Quick capture bar -->
+            <div class="card" style="margin-bottom:16px; padding:10px 14px;">
+              <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px; font-weight:600;">⚡ Quick Log</div>
+              <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <input type="text" id="proj-log-text" placeholder="Note, insight, what you studied..." class="strat-settings-input" style="flex:1; min-width:180px;"
+                  onkeydown="if(event.key==='Enter') App.logProjectCapture('${activeCL.id}')">
+                <input type="text" id="proj-log-tag" value="${escapeHTML(captureTag)}" placeholder="#tag" class="strat-settings-input" style="width:80px;"
+                  title="Any #tag — e.g. #study #exam #review #note">
+                <button class="btn btn-primary btn-sm" onclick="App.logProjectCapture('${activeCL.id}')">Log</button>
+              </div>
+              <div style="font-size:10px; color:var(--text-dim); margin-top:4px;">Any #tag works — logs to Capture view</div>
+            </div>
+
+            <!-- Hint bar -->
+            <div style="font-size:11px; color:var(--text-dim); margin-bottom:12px; padding:6px 10px; background:var(--bg-input); border-radius:6px;">
+              💡 Click <strong>○</strong> or <strong>[+ Rev]</strong> on any item to log a review pass. Each dot = one review with its date. Click a dot to remove it.
+            </div>
+
+            ${activeCL.sections.map((sec, secIdx) => {
+              const secRevDone = sec.items.filter(it => (it.revisions||[]).length > 0 || it.done).length;
+              const isEditingSec = App._editingSection && App._editingSection.clId === activeCL.id && App._editingSection.secIdx === secIdx;
+
+              return `
+                <details style="margin-bottom:10px;" open>
+                  <summary style="cursor:pointer; user-select:none; padding:8px 0; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border);">
+                    ${isEditingSec ? `
+                      <div style="display:flex; gap:6px; flex:1;" onclick="event.preventDefault()">
+                        <input id="edit-sec-name-${secIdx}" value="${escapeHTML(sec.name)}" class="strat-settings-input" style="flex:1; font-size:13px;"
+                          onkeydown="if(event.key==='Enter') App.saveEditSection('${activeCL.id}', ${secIdx}, this.value)">
+                        <button class="btn btn-primary btn-sm" onclick="App.saveEditSection('${activeCL.id}', ${secIdx}, document.getElementById('edit-sec-name-${secIdx}').value)">Save</button>
+                        <button class="btn btn-ghost btn-sm" onclick="App._editingSection=null; App.render();">✕</button>
+                      </div>
+                    ` : `
+                      <div style="display:flex; align-items:center; gap:6px;">
+                        <span style="font-size:13px; font-weight:700; color:var(--text);">${escapeHTML(sec.name)}</span>
+                        <button onclick="event.preventDefault(); App.startEditSection('${activeCL.id}', ${secIdx})" title="Rename section" style="background:none; border:none; cursor:pointer; color:var(--text-dim); font-size:12px; opacity:0.5;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5">✎</button>
+                      </div>
+                    `}
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span style="font-size:11px; color:${secRevDone===sec.items.length && sec.items.length>0 ? 'var(--green)' : 'var(--text-dim)'};">${secRevDone}/${sec.items.length}</span>
+                      <button class="btn btn-ghost btn-sm" style="color:var(--red); font-size:11px; padding:2px 6px;" onclick="event.preventDefault(); App.deleteChecklistSection('${activeCL.id}', ${secIdx})">✕ section</button>
+                    </div>
+                  </summary>
+                  <div style="padding-top:6px;">
+                    ${sec.items.map((item, itemIdx) => {
+                      const revs = item.revisions || (item.done ? [{date: new Date(activeCL.uploadedAt).toISOString().slice(0,10)}] : []);
+                      const itemStatus = item.status || (item.done ? 'weak' : 'not-started');
+                      const statusColor = statusColors[itemStatus] || 'var(--text-dim)';
+                      const isEditingIt = App._editingItem && App._editingItem.clId === activeCL.id && App._editingItem.secIdx === secIdx && App._editingItem.itemIdx === itemIdx;
+
+                      return `
+                        <div style="display:flex; align-items:flex-start; gap:6px; padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
+                          <!-- Revision circle/dots — clickable -->
+                          <div style="display:flex; gap:3px; align-items:center; flex-shrink:0; padding-top:3px; cursor:pointer;" onclick="App.addRevision('${activeCL.id}', ${secIdx}, ${itemIdx})" title="Log review">
+                            ${revs.length === 0
+                              ? `<span style="width:16px; height:16px; border-radius:50%; border:2px solid var(--text-dim); display:inline-block; cursor:pointer;"></span>`
+                              : revs.map((r, rIdx) => `<span title="Reviewed ${r.date} — click to remove" onclick="event.stopPropagation(); App.removeRevision('${activeCL.id}', ${secIdx}, ${itemIdx}, ${rIdx})" style="width:10px; height:10px; border-radius:50%; background:var(--green); display:inline-block; cursor:pointer; opacity:0.85; flex-shrink:0;"></span>`).join('')
+                            }
+                          </div>
+                          <!-- Item text — editable -->
+                          <div style="flex:1; font-size:13px;">
+                            ${isEditingIt ? `
+                              <div style="display:flex; gap:4px;">
+                                <input id="edit-item-${secIdx}-${itemIdx}" value="${escapeHTML(item.text)}" class="strat-settings-input" style="flex:1; font-size:12px;"
+                                  onkeydown="if(event.key==='Enter') App.saveEditItem('${activeCL.id}', ${secIdx}, ${itemIdx}, this.value); if(event.key==='Escape'){App._editingItem=null; App.render();}">
+                                <button class="btn btn-primary btn-sm" style="font-size:11px; padding:2px 6px;" onclick="App.saveEditItem('${activeCL.id}', ${secIdx}, ${itemIdx}, document.getElementById('edit-item-${secIdx}-${itemIdx}').value)">✓</button>
+                                <button class="btn btn-ghost btn-sm" style="font-size:11px; padding:2px 4px;" onclick="App._editingItem=null; App.render();">✕</button>
+                              </div>
+                            ` : `
+                              ${escapeHTML(item.text)}
+                              ${item.tag === 'AI' ? '<span style="font-size:9px; color:var(--accent); border:1px solid var(--accent); border-radius:3px; padding:0 3px; margin-left:4px; vertical-align:middle; opacity:0.6;">AI</span>' : ''}
+                              ${revs.length > 0 ? `<span style="font-size:10px; color:var(--text-dim); margin-left:6px;">${revs.map(r=>r.date.slice(5)).join(' · ')}</span>` : ''}
+                            `}
+                          </div>
+                          <!-- Status badge -->
+                          <button onclick="App.cycleItemStatus('${activeCL.id}', ${secIdx}, ${itemIdx})" title="not-started → weak → moderate → strong"
+                            style="font-size:10px; color:${statusColor}; border:1px solid ${statusColor}; border-radius:4px; padding:1px 5px; background:none; cursor:pointer; flex-shrink:0; white-space:nowrap;">
+                            ${itemStatus === 'not-started' ? '—' : itemStatus.replace('-',' ')}
+                          </button>
+                          <!-- + Rev button (explicit affordance) -->
+                          <button onclick="App.addRevision('${activeCL.id}', ${secIdx}, ${itemIdx})" title="Log a review pass"
+                            style="font-size:10px; color:var(--green); border:1px solid var(--green)40; border-radius:4px; padding:1px 5px; background:var(--green)10; cursor:pointer; flex-shrink:0; white-space:nowrap;">
+                            + Rev
+                          </button>
+                          <!-- Edit item button -->
+                          <button onclick="App.startEditItem('${activeCL.id}', ${secIdx}, ${itemIdx})" title="Edit item text"
+                            style="font-size:11px; color:var(--text-dim); background:none; border:none; cursor:pointer; flex-shrink:0; padding:0 2px; opacity:0.5;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5">✎</button>
+                          <!-- Delete item -->
+                          <button onclick="App.deleteChecklistItem('${activeCL.id}', ${secIdx}, ${itemIdx})" title="Delete item"
+                            style="font-size:11px; color:var(--text-dim); background:none; border:none; cursor:pointer; flex-shrink:0; padding:0 2px; opacity:0.4;" onmouseover="this.style.opacity=1; this.style.color='var(--red)'" onmouseout="this.style.opacity=0.4; this.style.color='var(--text-dim)'">✕</button>
+                        </div>
+                      `;
+                    }).join('')}
+                    <!-- Add item to section -->
+                    <div style="display:flex; gap:6px; margin-top:8px;">
+                      <input type="text" id="new-item-${secIdx}" placeholder="Add item..." class="strat-settings-input" style="flex:1; font-size:12px;"
+                        onkeydown="if(event.key==='Enter'){App.addChecklistItem('${activeCL.id}', ${secIdx}, this.value); this.value='';}">
+                      <button class="btn btn-ghost btn-sm" onclick="App.addChecklistItem('${activeCL.id}', ${secIdx}, document.getElementById('new-item-${secIdx}').value); document.getElementById('new-item-${secIdx}').value='';">+</button>
+                    </div>
+                  </div>
+                </details>
+              `;
+            }).join('')}
+
+            <!-- Add new section -->
+            <div style="display:flex; gap:6px; margin-top:12px;">
+              <input type="text" id="new-section-name" placeholder="New section name..." class="strat-settings-input" style="flex:1;"
+                onkeydown="if(event.key==='Enter'){App.addChecklistSection('${activeCL.id}', this.value); this.value='';}">
+              <button class="btn btn-ghost btn-sm" onclick="App.addChecklistSection('${activeCL.id}', document.getElementById('new-section-name').value); document.getElementById('new-section-name').value='';">+ Section</button>
             </div>
           `;
-        }).join('')}
-
-        ${total > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.loadTopicPreset()" style="margin-top:8px;">Load Preset (adds missing)</button>` : ''}
+        })()}
       `;
     }
 
@@ -1438,33 +1777,31 @@ const Views = {
       <h1 class="view-title">Strategy</h1>
       <p class="view-subtitle">Exam \u00B7 Manuscript \u00B7 Scoliox \u2014 Your integrated plan</p>
 
-      <!-- Stat Cards -->
-      <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
-        <div class="stat-card" style="border-color:${STREAMS.exam.color}40;">
-          <div class="stat-number" style="color:${STREAMS.exam.color};">${daysLeft}</div>
-          <div class="stat-label">Days to Exam</div>
-        </div>
+      <!-- Stat Cards — one per project + milestones -->
+      <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
+        ${(s.projects || []).map(proj => {
+          const dl = new Date(proj.deadline);
+          const dLeft = Math.max(0, Math.ceil((dl - new Date()) / 864e5));
+          return `<div class="stat-card" style="border-color:${proj.color}40;">
+            <div style="font-size:11px; color:${proj.color}; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">${escapeHTML(proj.icon || '')} ${escapeHTML(proj.name)}</div>
+            <div class="stat-number" style="color:${proj.color}; font-size:28px;">${dLeft}</div>
+            <div class="stat-label">days left</div>
+          </div>`;
+        }).join('')}
         <div class="stat-card">
           <div class="stat-number" style="color:var(--green);">${doneMs}/${totalMs}</div>
           <div class="stat-label">Milestones</div>
           <div class="progress-bar" style="margin-top:6px;">
-            <div class="progress-fill" style="width:${pct}%; background:${STREAMS.exam.color};"></div>
+            <div class="progress-fill" style="width:${pct}%;"></div>
           </div>
-        </div>
-        <div class="stat-card">
-          <div style="font-size:14px; font-weight:700; color:var(--text); margin-bottom:2px;">${phase}</div>
-          <div class="stat-label">Current Phase</div>
-          <div style="font-size:12px; color:${STREAMS.exam.color}; font-weight:600; margin-top:4px;">${curAlloc.exam}% \u2192 Exam</div>
         </div>
       </div>
 
       <!-- Sub-Tabs -->
       <div class="strat-tabs">
         <span class="strat-tab ${tab==='roadmap'?'active':''}" onclick="App.setStrategyTab('roadmap')">Roadmap</span>
-        <span class="strat-tab ${tab==='weekly'?'active':''}" onclick="App.setStrategyTab('weekly')">Weekly</span>
-        <span class="strat-tab ${tab==='rules'?'active':''}" onclick="App.setStrategyTab('rules')">Rules</span>
+        <span class="strat-tab ${tab==='projects'?'active':''}" onclick="App.setStrategyTab('projects')">Projects</span>
         <span class="strat-tab ${tab==='settings'?'active':''}" onclick="App.setStrategyTab('settings')">Settings</span>
-        <span class="strat-tab ${tab==='topics'?'active':''}" onclick="App.setStrategyTab('topics')">Topics</span>
       </div>
 
       ${tabContent}
@@ -1560,8 +1897,8 @@ const Views = {
           </div>
         ` : `
           <div class="empty-state">
-            <div class="empty-icon">&#128218;</div>
-            <div class="empty-text">Loading vault...</div>
+            <div class="empty-icon">${App.vaultLoadError ? '&#9888;' : '&#128218;'}</div>
+            <div class="empty-text">${App.vaultLoadError ? 'Could not load vault — check your vault path in Settings.' : 'Loading vault...'}</div>
           </div>
         `}
       ` : ''}
@@ -1606,10 +1943,15 @@ const Views = {
     const data = Store.get();
     const g = App.growthData;
     if (!g) {
+      // Trigger load if not already in flight
+      if (!App._growthLoading) {
+        App._growthLoading = true;
+        VaultAPI.getGrowth().then(d => { App.growthData = d; App._growthLoading = false; App.render(); }).catch(() => { App._growthLoading = false; App.render(); });
+      }
       return `
         <h1 class="view-title">Growth</h1>
         <p class="view-subtitle">Your evolution over time</p>
-        <div class="empty-state"><div class="empty-text">Loading growth data...</div></div>
+        <div class="empty-state"><div class="empty-icon">&#128200;</div><div class="empty-text">Loading growth data...</div></div>
       `;
     }
 
@@ -1907,11 +2249,12 @@ const Views = {
           const shown = App.showAllSessions ? sessions : sessions.slice(0, 5);
           if (!shown.length) return '<div style="font-size:12px; color:var(--text-dim);">No sessions yet. Start a timer!</div>';
           return shown.map(s => `
-            <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border);">
+            <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border); flex-wrap:wrap;">
               <span style="font-size:11px; color:var(--text-dim); min-width:80px;">${new Date(s.ts).toLocaleDateString('en', { month:'short', day:'numeric' })}</span>
               <span style="font-size:12px; font-weight:600; min-width:45px;">${s.duration}min</span>
               <span class="tag-badge-sm">${escapeHTML(s.type || 'Study')}</span>
               ${s.note ? `<span style="font-size:12px; color:var(--text-dim); flex:1;">${escapeHTML(s.note)}</span>` : ''}
+              ${s.stoppedEarly ? `<span style="font-size:10px; color:var(--amber);" title="${escapeHTML(s.reason || '')}">(stopped early${s.originalDuration ? ' — planned ' + s.originalDuration + 'min' : ''})</span>` : ''}
             </div>
           `).join('');
         })()}
@@ -2118,11 +2461,11 @@ const Views = {
               oninput="App._timerNote=this.value">
             ${ts.running ? `
               <button class="btn btn-ghost" onclick="App.pauseTimer()">Pause</button>
-              ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary" onclick="App.stopTimer()">Stop</button>` : ''}
+              ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary" onclick="App.stopTimer()">Stop</button>` : `<button class="btn btn-ghost" style="color:var(--red);" onclick="App.stopCountdownEarly()">Stop Early</button>`}
               <button class="btn btn-ghost" onclick="App.resetTimer()">Reset</button>
             ` : `
               <button class="btn btn-primary" onclick="App.resumeTimer()">Resume</button>
-              ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary" onclick="App.stopTimer()">Stop</button>` : ''}
+              ${ts.mode === 'stopwatch' ? `<button class="btn btn-primary" onclick="App.stopTimer()">Stop</button>` : `<button class="btn btn-ghost" style="color:var(--red);" onclick="App.stopCountdownEarly()">Stop Early</button>`}
               <button class="btn btn-ghost" onclick="App.resetTimer()">Reset</button>
             `}
           ` : `
@@ -2211,7 +2554,7 @@ const Views = {
       </div>
 
       ${q.length >= 2 ? `
-        <div style="font-size:12px; color:var(--text-dim); margin-bottom:12px;">${results.length} result${results.length !== 1 ? 's' : ''} for "${escapeHTML(q)}"</div>
+        <div style="font-size:12px; color:var(--text-dim); margin-bottom:12px;">${results.length > 50 ? `Showing 50 of ${results.length}` : results.length} result${results.length !== 1 ? 's' : ''} for "${escapeHTML(q)}"</div>
         ${results.length ? `
           <div class="item-list">
             ${results.slice(0, 50).map(r => `
@@ -2256,8 +2599,54 @@ const Views = {
       sessionMap[s.date] += s.duration || 0;
     }
 
+    // Activity streak computation
+    const activityDays = new Set();
+    for (const j of data.journal) activityDays.add(j.date);
+    for (const s of (data.timer?.sessions || [])) activityDays.add(s.date);
+    for (const c of data.captures) {
+      const d = new Date(c.created).toISOString().slice(0, 10);
+      activityDays.add(d);
+    }
+    for (const e of (App.vaultDailyEntries || [])) activityDays.add(e.date);
+    // Schedule completions count as activity
+    for (const [date, log] of Object.entries(data.scheduleLog || {})) {
+      if (Object.values(log).some(v => v)) activityDays.add(date);
+    }
+    // Habit completions count as activity
+    for (const [date, log] of Object.entries((data.habits?.log) || {})) {
+      if (Object.values(log).some(v => v)) activityDays.add(date);
+    }
+
+    // Current streak
+    let currentStreak = 0;
+    const checkDate = new Date();
+    for (let i = 0; i < 365; i++) {
+      const dk = checkDate.toISOString().slice(0, 10);
+      if (activityDays.has(dk)) { currentStreak++; checkDate.setDate(checkDate.getDate() - 1); }
+      else break;
+    }
+
+    // Longest streak
+    let longestStreak = 0, tempStreak = 0;
+    const sortedDays = [...activityDays].sort();
+    for (let i = 0; i < sortedDays.length; i++) {
+      if (i === 0) { tempStreak = 1; }
+      else {
+        const prev = new Date(sortedDays[i - 1]);
+        const curr = new Date(sortedDays[i]);
+        const diff = (curr - prev) / 864e5;
+        tempStreak = diff === 1 ? tempStreak + 1 : 1;
+      }
+      longestStreak = Math.max(longestStreak, tempStreak);
+    }
+
+    // Month study total
+    const monthPrefix = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}`;
+    const monthStudy = (data.timer?.sessions || [])
+      .filter(s => s.date && s.date.startsWith(monthPrefix))
+      .reduce((sum, s) => sum + (s.duration || 0), 0);
+
     let cells = '';
-    // Empty cells before first day
     for (let i = 0; i < firstDay; i++) cells += '<div class="cal-cell cal-empty"></div>';
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -2265,13 +2654,16 @@ const Views = {
       const hasJournal = journalMap[dateStr];
       const dueTasks = taskMap[dateStr] || [];
       const studyMins = sessionMap[dateStr] || 0;
+      const isActive = activityDays.has(dateStr);
+      const activityCount = (hasJournal ? 1 : 0) + (dueTasks.length > 0 ? 1 : 0) + (studyMins > 0 ? 1 : 0) + (isActive && !hasJournal && !studyMins ? 1 : 0);
+      const intensityClass = activityCount >= 3 ? 'cal-high' : activityCount >= 2 ? 'cal-med' : activityCount >= 1 ? 'cal-low' : '';
       const dots = [];
       if (hasJournal) dots.push('var(--green)');
       if (dueTasks.length) dots.push('var(--red)');
       if (studyMins > 0) dots.push('var(--accent)');
 
       cells += `
-        <div class="cal-cell ${isToday ? 'cal-today' : ''}" onclick="App._calSelected='${dateStr}'; App.render();">
+        <div class="cal-cell ${isToday ? 'cal-today' : ''} ${intensityClass}" onclick="App._calSelected='${dateStr}'; App.render();">
           <div class="cal-day">${d}</div>
           ${dots.length ? `<div class="cal-dots">${dots.map(c => `<span class="cal-dot" style="background:${c};"></span>`).join('')}</div>` : ''}
         </div>`;
@@ -2287,6 +2679,20 @@ const Views = {
     return `
       <h1 class="view-title">Calendar</h1>
       <p class="view-subtitle">Overview of your month</p>
+
+      <!-- Streak Banner -->
+      <div class="cal-streak-banner">
+        <div class="cal-streak-main">
+          <span class="cal-streak-fire">&#128293;</span>
+          <span class="cal-streak-count">${currentStreak}</span>
+          <span class="cal-streak-label">day streak</span>
+          ${currentStreak >= 30 ? '<span class="cal-milestone">&#127942; 30+ days!</span>' :
+            currentStreak >= 7 ? '<span class="cal-milestone">&#11088; 7+ days!</span>' : ''}
+        </div>
+        <div class="cal-streak-secondary">
+          Longest: ${longestStreak} days &middot; This month: ${monthStudy >= 60 ? Math.floor(monthStudy / 60) + 'h ' + (monthStudy % 60) + 'm' : monthStudy + 'min'} study
+        </div>
+      </div>
 
       <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
@@ -2309,6 +2715,16 @@ const Views = {
       <div class="card">
         <div class="strat-section-label">${sel}</div>
         ${selStudy > 0 ? `<div style="font-size:13px; margin-bottom:6px;">&#128337; Study: <strong>${selStudy}min</strong> (${selSessions.length} session${selSessions.length !== 1 ? 's' : ''})</div>` : ''}
+        ${selSessions.length > 0 ? `
+          <div style="margin-bottom:6px;">
+            ${selSessions.map(s => `
+              <div style="font-size:12px; padding:2px 0; color:var(--text-dim);">
+                ${s.duration}min ${escapeHTML(s.type || 'Study')}${s.note ? ' — ' + escapeHTML(s.note) : ''}
+                ${s.stoppedEarly ? '<span style="color:var(--amber);">(early)</span>' : ''}
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
         ${selTasks.length ? `
           <div style="font-size:13px; margin-bottom:6px;">&#128203; Tasks due:</div>
           ${selTasks.map(t => `<div style="font-size:13px; padding:2px 0; color:${t.done ? 'var(--green)' : 'var(--text)'};">${t.done ? '&#10003;' : '&#9675;'} ${escapeHTML(t.text)}</div>`).join('')}
@@ -2432,6 +2848,11 @@ const App = {
   taskFilter: 'all',
   strategyMonth: 'feb',
   strategyTab: 'roadmap',
+  strategyProject: null,
+  _projAddOpen: false,
+  _editingItem: null,
+  _editingSection: null,
+  _editingProject: null,
 
   // Vault state
   vaultMode: 'browse',
@@ -2734,6 +3155,10 @@ const App = {
     document.getElementById('import-file').addEventListener('change', (e) => {
       if (e.target.files[0]) Store.importJSON(e.target.files[0]);
     });
+    document.getElementById('checklist-upload-file')?.addEventListener('change', e => {
+      App.handleChecklistFile(e.target.files[0]);
+      e.target.value = '';
+    });
   },
 
   render() {
@@ -2788,6 +3213,50 @@ const App = {
       }
       document.getElementById('content').innerHTML = html;
 
+      // Stop Early reason modal
+      if (this._showStopReasonModal) {
+        const modal = document.createElement('div');
+        modal.className = 'stop-reason-overlay';
+        modal.innerHTML = `
+          <div class="stop-reason-modal">
+            <h3 style="margin-bottom:16px; font-size:16px;">Why did you stop early?</h3>
+            <div class="stop-reason-options">
+              <button class="btn btn-ghost" onclick="App.confirmEarlyStop('Got distracted')">Got distracted</button>
+              <button class="btn btn-ghost" onclick="App.confirmEarlyStop('Emergency')">Emergency</button>
+              <button class="btn btn-ghost" onclick="App.confirmEarlyStop('Finished early')">Finished early</button>
+            </div>
+            <input type="text" id="stop-reason-custom" class="strat-settings-input" placeholder="Custom reason..." style="margin-top:8px;"
+              onkeydown="if(event.key==='Enter')App.confirmEarlyStop(this.value)">
+            <div style="display:flex;gap:8px;margin-top:12px;">
+              <button class="btn btn-primary btn-sm" onclick="const v=document.getElementById('stop-reason-custom').value; App.confirmEarlyStop(v||'No reason given')">Submit</button>
+              <button class="btn btn-ghost btn-sm" onclick="App._showStopReasonModal=false; App.resumeTimer();">Cancel</button>
+            </div>
+          </div>`;
+        document.getElementById('content').appendChild(modal);
+      }
+
+      // Tag line results overlay
+      if (this._tagLineResults) {
+        const overlay = document.createElement('div');
+        overlay.className = 'tag-line-overlay';
+        const entries = this._tagLineResults.entries || [];
+        overlay.innerHTML = `
+          <div class="tag-line-panel">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <span style="font-size:14px; font-weight:600; color:var(--accent);">#${escapeHTML(this._tagLineQuery || '')} &mdash; ${this._tagLineResults.count || 0} entries</span>
+              <button class="btn btn-ghost btn-sm" onclick="App._tagLineResults=null; App._tagLineQuery=''; App.render();">Close</button>
+            </div>
+            ${entries.slice(0, 50).map(e => `
+              <div class="lesson-item" style="padding:6px 0; border-bottom:1px solid var(--border);">
+                <div style="font-size:11px; color:var(--text-dim);">${escapeHTML(e.date || '')}${e.source ? ' &middot; ' + escapeHTML(e.source) : ''}</div>
+                <div style="font-size:13px;">${escapeHTML(e.text || '')}</div>
+              </div>
+            `).join('')}
+            ${entries.length > 50 ? '<div style="font-size:12px; color:var(--text-dim); padding:8px;">Showing 50 of ' + entries.length + ' entries</div>' : ''}
+          </div>`;
+        document.getElementById('content').appendChild(overlay);
+      }
+
       // Auto-focus FAB input when expanded
       if (this.fabExpanded) {
         setTimeout(() => document.getElementById('fab-input')?.focus(), 50);
@@ -2836,17 +3305,27 @@ const App = {
     const due = dueInput?.value || '';
     const recurring = recurInput?.value || '';
     Store.update(d => d.tasks.push({ id: uid(), text, category, due, recurring, done: false, created: Date.now() }));
+    if (this.vaultAvailable) {
+      VaultAPI.addCapture(`- [ ] ${text}${category ? ' #' + category : ''}`).catch(() => {});
+    }
     this.render();
   },
 
   toggleTask(id) {
+    let taskText = '';
+    let justDone = false;
     Store.update(d => {
       const task = d.tasks.find(t => t.id === id);
       if (task) {
         task.done = !task.done;
+        taskText = task.text;
+        justDone = task.done;
         if (task.done && task.recurring) task.lastCompleted = todayKey();
       }
     });
+    if (justDone && this.vaultAvailable) {
+      VaultAPI.addCapture(`Completed task: ${taskText}`).catch(() => {});
+    }
     this.render();
   },
 
@@ -2971,7 +3450,7 @@ const App = {
     const text = input.value.trim();
     if (!text) return;
     updateStreak();
-    Store.update(d => d.journal.push({ id: uid(), text, created: Date.now() }));
+    Store.update(d => d.journal.push({ id: uid(), text, date: todayKey(), created: Date.now() }));
     // Bridge to vault if toggle is on
     const toggle = document.getElementById('journal-vault-toggle');
     if (toggle && toggle.checked) {
@@ -3029,6 +3508,20 @@ const App = {
     if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
   },
 
+  liveAllocVal(month, key, val) {
+    const el = document.getElementById('alloc-val-' + month + '-' + key);
+    if (el) el.textContent = val + '%';
+  },
+
+  saveStratAlloc(month, key, val) {
+    Store.update(d => {
+      if (!d.strategy.allocations) d.strategy.allocations = {};
+      if (!d.strategy.allocations[month]) d.strategy.allocations[month] = Object.assign({}, DEFAULT_ALLOC[month] || {});
+      d.strategy.allocations[month][key] = +val;
+    });
+    this.render();
+  },
+
   addStrategyMilestone() {
     const text = document.getElementById('strat-ms-text').value.trim();
     if (!text) return;
@@ -3071,6 +3564,287 @@ const App = {
     Store.update(d => {
       d.strategy.examDate = input.value;
     });
+    this.render();
+  },
+
+  // ─── Checklist Methods ─────────────────────────
+  uploadChecklist() {
+    document.getElementById('checklist-upload-file')?.click();
+  },
+
+  handleChecklistFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const cl = parseChecklistMD(e.target.result, file.name.replace(/\.[^.]+$/, ''));
+      Store.update(d => { if (!d.checklists) d.checklists = []; d.checklists.push(cl); });
+      toast(`Checklist "${cl.name}" uploaded — ${cl.sections.flatMap(s => s.items).length} items`);
+      App.strategyTab = 'projects';
+      App.strategyProject = cl.id;
+      App._projAddOpen = false;
+      this.render();
+    };
+    reader.readAsText(file);
+  },
+
+  toggleChecklistItem(clId, secIdx, itemIdx) {
+    Store.update(d => {
+      const cl = (d.checklists || []).find(c => c.id === clId);
+      if (cl && cl.sections[secIdx] && cl.sections[secIdx].items[itemIdx]) {
+        cl.sections[secIdx].items[itemIdx].done = !cl.sections[secIdx].items[itemIdx].done;
+      }
+    });
+    this.render();
+  },
+
+  deleteChecklist(clId) {
+    if (!confirm('Delete this checklist?')) return;
+    Store.update(d => { d.checklists = (d.checklists || []).filter(c => c.id !== clId); });
+    toast('Checklist deleted');
+    this.render();
+  },
+
+  linkChecklist(clId, projectId) {
+    Store.update(d => {
+      const cl = (d.checklists || []).find(c => c.id === clId);
+      if (cl) cl.projectId = projectId || null;
+    });
+    this.render();
+  },
+
+  setStrategyProject(id) {
+    this.strategyProject = id;
+    this._projAddOpen = false;
+    this.render();
+  },
+
+  addBlankProject(name) {
+    name = (name || '').trim();
+    if (!name) { toast('Enter a project name'); return; }
+    const cl = { id: uid(), name, icon: '📋', projectId: null, uploadedAt: Date.now(), sections: [] };
+    Store.update(d => { if (!d.checklists) d.checklists = []; d.checklists.push(cl); });
+    this.strategyProject = cl.id;
+    this._projAddOpen = false;
+    toast(`Project "${name}" created`);
+    this.render();
+  },
+
+  deleteChecklistSection(clId, secIdx) {
+    if (!confirm('Delete this section and all its items?')) return;
+    Store.update(d => {
+      const cl = (d.checklists||[]).find(c => c.id === clId);
+      if (cl) cl.sections.splice(secIdx, 1);
+    });
+    this.render();
+  },
+
+  addChecklistSection(clId, name) {
+    name = (name || '').trim();
+    if (!name) return;
+    Store.update(d => {
+      const cl = (d.checklists||[]).find(c => c.id === clId);
+      if (cl) cl.sections.push({ name, items: [] });
+    });
+    this.render();
+  },
+
+  addChecklistItem(clId, secIdx, text) {
+    text = (text || '').trim();
+    if (!text) return;
+    Store.update(d => {
+      const cl = (d.checklists||[]).find(c => c.id === clId);
+      if (cl && cl.sections[secIdx]) {
+        cl.sections[secIdx].items.push({ id: uid(), text, tag: null, status: 'not-started', revisions: [] });
+      }
+    });
+    this.render();
+  },
+
+  deleteChecklistItem(clId, secIdx, itemIdx) {
+    Store.update(d => {
+      const cl = (d.checklists||[]).find(c => c.id === clId);
+      if (cl && cl.sections[secIdx]) cl.sections[secIdx].items.splice(itemIdx, 1);
+    });
+    this.render();
+  },
+
+  addRevision(clId, secIdx, itemIdx) {
+    Store.update(d => {
+      const cl = (d.checklists||[]).find(c => c.id === clId);
+      if (cl && cl.sections[secIdx] && cl.sections[secIdx].items[itemIdx]) {
+        const item = cl.sections[secIdx].items[itemIdx];
+        if (!item.revisions) item.revisions = [];
+        item.revisions.push({ date: todayKey() });
+        // Migrate old done flag
+        delete item.done;
+      }
+    });
+    this.render();
+  },
+
+  removeRevision(clId, secIdx, itemIdx, revIdx) {
+    Store.update(d => {
+      const cl = (d.checklists||[]).find(c => c.id === clId);
+      if (cl && cl.sections[secIdx] && cl.sections[secIdx].items[itemIdx]) {
+        const item = cl.sections[secIdx].items[itemIdx];
+        if (item.revisions) item.revisions.splice(revIdx, 1);
+      }
+    });
+    this.render();
+  },
+
+  cycleItemStatus(clId, secIdx, itemIdx) {
+    const statusNext = { 'not-started': 'weak', weak: 'moderate', moderate: 'strong', strong: 'not-started' };
+    Store.update(d => {
+      const cl = (d.checklists||[]).find(c => c.id === clId);
+      if (cl && cl.sections[secIdx] && cl.sections[secIdx].items[itemIdx]) {
+        const item = cl.sections[secIdx].items[itemIdx];
+        const cur = item.status || 'not-started';
+        item.status = statusNext[cur] || 'weak';
+      }
+    });
+    this.render();
+  },
+
+  // ─── Inline editing methods ────────────────────
+  startEditItem(clId, secIdx, itemIdx) {
+    this._editingItem = { clId, secIdx, itemIdx };
+    this._editingSection = null;
+    this._editingProject = null;
+    this.render();
+  },
+
+  saveEditItem(clId, secIdx, itemIdx, newText) {
+    newText = (newText || '').trim();
+    if (!newText) return;
+    Store.update(d => {
+      const cl = (d.checklists||[]).find(c => c.id === clId);
+      if (cl && cl.sections[secIdx] && cl.sections[secIdx].items[itemIdx]) {
+        cl.sections[secIdx].items[itemIdx].text = newText;
+      }
+    });
+    this._editingItem = null;
+    this.render();
+  },
+
+  startEditSection(clId, secIdx) {
+    this._editingSection = { clId, secIdx };
+    this._editingItem = null;
+    this._editingProject = null;
+    this.render();
+  },
+
+  saveEditSection(clId, secIdx, newName) {
+    newName = (newName || '').trim();
+    if (!newName) return;
+    Store.update(d => {
+      const cl = (d.checklists||[]).find(c => c.id === clId);
+      if (cl && cl.sections[secIdx]) cl.sections[secIdx].name = newName;
+    });
+    this._editingSection = null;
+    this.render();
+  },
+
+  startEditProject(clId) {
+    this._editingProject = clId;
+    this._editingItem = null;
+    this._editingSection = null;
+    this.render();
+  },
+
+  saveEditProject(clId, newName, newIcon) {
+    newName = (newName || '').trim();
+    if (!newName) return;
+    Store.update(d => {
+      const cl = (d.checklists||[]).find(c => c.id === clId);
+      if (cl) { cl.name = newName; if (newIcon) cl.icon = newIcon.trim(); }
+    });
+    this._editingProject = null;
+    this.render();
+  },
+
+  // ─── Quick capture from project ────────────────
+  logProjectCapture(clId) {
+    const textEl = document.getElementById('proj-log-text');
+    const tagEl = document.getElementById('proj-log-tag');
+    const text = (textEl?.value || '').trim();
+    const tag = (tagEl?.value || '#study').trim();
+    if (!text) { toast('Enter something to log'); return; }
+    const taggedText = tag ? `${tag} ${text}` : text;
+    Store.update(d => {
+      d.captures.push({ id: uid(), text: taggedText, created: Date.now() });
+      // Save tag back to checklist
+      const cl = (d.checklists||[]).find(c => c.id === clId);
+      if (cl) cl.captureTag = tag;
+    });
+    if (textEl) textEl.value = '';
+    toast(`Logged to Capture`);
+    this.render();
+  },
+
+  importTopicsAsProject() {
+    const data = Store.get();
+    const topics = data.topics || [];
+    if (!topics.length) return;
+    // Group by category
+    const catMap = {};
+    for (const t of topics) {
+      const cat = t.category || 'Uncategorized';
+      if (!catMap[cat]) catMap[cat] = [];
+      catMap[cat].push(t);
+    }
+    const sections = Object.entries(catMap).map(([name, items]) => ({
+      name,
+      items: items.map(t => ({
+        id: uid(),
+        text: t.name,
+        tag: null,
+        status: t.status || 'not-started',
+        revisions: t.lastStudied ? [{ date: t.lastStudied }] : []
+      }))
+    }));
+    const cl = { id: uid(), name: 'My Topics', icon: '📚', projectId: null, uploadedAt: Date.now(), sections, _fromTopics: true };
+    Store.update(d => {
+      if (!d.checklists) d.checklists = [];
+      d.checklists.push(cl);
+      d._topicsImportDismissed = true;
+    });
+    this.strategyProject = cl.id;
+    toast(`Imported ${topics.length} topics as a Project`);
+    this.render();
+  },
+
+  dismissTopicsImport() {
+    Store.update(d => { d._topicsImportDismissed = true; });
+    this.render();
+  },
+
+  // ─── Project Methods ───────────────────────────
+  addProject() {
+    const icon = document.getElementById('new-proj-icon')?.value.trim() || '🎯';
+    const name = document.getElementById('new-proj-name')?.value.trim();
+    const deadline = document.getElementById('new-proj-deadline')?.value;
+    const color = document.getElementById('new-proj-color')?.value || '#7c6ff7';
+    if (!name || !deadline) { toast('Name and deadline required'); return; }
+    Store.update(d => {
+      if (!d.strategy.projects) d.strategy.projects = [];
+      d.strategy.projects.push({ id: uid(), name, deadline, color, icon });
+    });
+    this.render();
+  },
+
+  updateProject(idx, field, value) {
+    Store.update(d => {
+      if (d.strategy.projects && d.strategy.projects[idx]) {
+        d.strategy.projects[idx][field] = value;
+      }
+    });
+    this.render();
+  },
+
+  deleteProject(id) {
+    if (!confirm('Delete this project?')) return;
+    Store.update(d => { d.strategy.projects = (d.strategy.projects || []).filter(p => p.id !== id); });
     this.render();
   },
 
@@ -3231,12 +4005,14 @@ const App = {
     this.vaultIsSearching = false;
     this.vaultSearchResults = [];
     this.render();
+    this.vaultLoadError = false;
     try {
       const data = await VaultAPI.listFiles(p);
       this.vaultFileList = data.files || [];
       this.render();
     } catch {
       this.vaultFileList = [];
+      this.vaultLoadError = true;
       this.render();
     }
   },
@@ -3315,14 +4091,18 @@ const App = {
     this.render();
   },
 
-  vaultSearchByTag(tag) {
-    this.vaultSearchQuery = '#' + tag;
-    this.vaultIsSearching = true;
+  async vaultSearchByTag(tag) {
+    this._tagLineResults = null;
+    this._tagLineQuery = tag;
     this.render();
-    VaultAPI.search('#' + tag).then(data => {
-      this.vaultSearchResults = data.results || [];
-      this.render();
-    }).catch(() => {});
+    try {
+      const data = await VaultAPI.getTagEntries(tag);
+      this._tagLineResults = data;
+    } catch {
+      // Fallback to old search if tag-entries not available
+      this._tagLineResults = { tag, entries: [], count: 0 };
+    }
+    this.render();
   },
 
   async vaultNewFile() {
@@ -3366,7 +4146,8 @@ const App = {
           : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
       }
       if (ring) {
-        const pct = (realElapsed % 60) / 60 * 100;
+        // Fill ring continuously over 60 min (3600s), clamped at 100%
+        const pct = Math.min(realElapsed / 3600, 1) * 100;
         ring.setAttribute('stroke-dashoffset', 2 * Math.PI * 44 * (1 - pct / 100));
       }
     } else {
@@ -3419,6 +4200,7 @@ const App = {
     if (ts.mode !== 'stopwatch' && !ts.seconds) return;
     ts.running = true;
     ts.startedAt = Date.now();
+    if (ts.interval) clearInterval(ts.interval);
     ts.interval = setInterval(() => this._tickTimer(), 1000);
     this.render();
   },
@@ -3438,6 +4220,38 @@ const App = {
     if (this.timerState.interval) clearInterval(this.timerState.interval);
     this.timerState = {};
     this._timerNote = '';
+    this._pomodoroAuto = false;
+    this._pomodoroCount = 0;
+    this.render();
+  },
+
+  stopCountdownEarly() {
+    if (this.timerState.interval) clearInterval(this.timerState.interval);
+    const ts = this.timerState;
+    const elapsed = (ts.accumulated || 0) + (ts.startedAt ? Math.floor((Date.now() - ts.startedAt) / 1000) : 0);
+    this._earlyStopElapsed = elapsed;
+    this._earlyStopType = ts.type || 'Study';
+    this._earlyStopOriginalTotal = ts.total || 0;
+    this._showStopReasonModal = true;
+    ts.running = false;
+    ts.interval = null;
+    this.render();
+  },
+
+  confirmEarlyStop(reason) {
+    const durationMin = Math.max(1, Math.round(this._earlyStopElapsed / 60));
+    const originalMin = Math.round(this._earlyStopOriginalTotal / 60);
+    const note = (this._timerNote || '').trim();
+    Store.update(d => {
+      if (!d.timer) d.timer = { sessions: [] };
+      d.timer.sessions.push({
+        date: todayKey(), duration: durationMin, type: this._earlyStopType,
+        ts: Date.now(), note, stoppedEarly: true, reason: reason || 'No reason given', originalDuration: originalMin
+      });
+    });
+    this._timerNotify(durationMin, this._earlyStopType);
+    this.timerState = { completed: true, completedDuration: durationMin, completedType: this._earlyStopType };
+    this._showStopReasonModal = false;
     this._pomodoroAuto = false;
     this._pomodoroCount = 0;
     this.render();
@@ -3470,7 +4284,7 @@ const App = {
     } catch {}
     // Browser notification
     if (Notification.permission === 'granted') {
-      new Notification('Timer Complete', { body: `${durationMin}min ${type} session done!`, icon: '&#9670;' });
+      new Notification('Timer Complete', { body: `${durationMin}min ${type} session done!`, icon: '/icon-192.svg' });
     }
   },
 
@@ -3544,12 +4358,27 @@ const App = {
 
   // ─── Habits ─────────────────────────────────
   toggleHabit(habitId) {
+    let justCompleted = false;
     Store.update(d => {
       if (!d.habits) d.habits = { definitions: [], log: {} };
       const today = todayKey();
       if (!d.habits.log[today]) d.habits.log[today] = {};
-      d.habits.log[today][habitId] = !d.habits.log[today][habitId];
+      const was = d.habits.log[today][habitId];
+      d.habits.log[today][habitId] = !was;
+      justCompleted = !was;
     });
+    if (justCompleted) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        osc.frequency.value = 600; osc.type = 'sine';
+        const gain = ctx.createGain();
+        gain.gain.value = 0.1;
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(); setTimeout(() => { osc.stop(); ctx.close(); }, 100);
+      } catch {}
+      toast('Habit done!');
+    }
     this.render();
   },
 
@@ -3570,6 +4399,55 @@ const App = {
     Store.update(d => {
       if (!d.habits) return;
       d.habits.definitions = d.habits.definitions.filter(h => h.id !== id);
+    });
+    this.render();
+  },
+
+  // ─── Schedule ──────────────────────────────────
+  _editSchedule: false,
+
+  toggleScheduleSlot(idx) {
+    const today = todayKey();
+    const key = 'slot-' + idx;
+    let justCompleted = false;
+    Store.update(d => {
+      if (!d.scheduleLog) d.scheduleLog = {};
+      if (!d.scheduleLog[today]) d.scheduleLog[today] = {};
+      const was = d.scheduleLog[today][key];
+      d.scheduleLog[today][key] = !was;
+      justCompleted = !was;
+    });
+    if (justCompleted) {
+      const schedule = Store.get().strategy.schedule || WEEKLY_TEMPLATE;
+      const slot = schedule[idx];
+      if (slot) {
+        const text = `Completed: ${slot.time} — ${slot.activity}`;
+        Store.update(d => d.captures.push({ id: uid(), text, created: Date.now() }));
+        if (this.vaultAvailable) {
+          VaultAPI.addCapture(text).catch(() => {});
+        }
+      }
+    }
+    this.render();
+  },
+
+  addScheduleSlot() {
+    const timeInput = document.getElementById('sched-new-time');
+    const actInput = document.getElementById('sched-new-activity');
+    const time = timeInput?.value.trim();
+    const activity = actInput?.value.trim();
+    if (!time || !activity) return;
+    Store.update(d => {
+      if (!d.strategy.schedule) d.strategy.schedule = [...WEEKLY_TEMPLATE];
+      d.strategy.schedule.push({ time, activity, stream: null });
+      d.strategy.schedule.sort((a, b) => a.time.localeCompare(b.time));
+    });
+    this.render();
+  },
+
+  removeScheduleSlot(idx) {
+    Store.update(d => {
+      if (d.strategy.schedule) d.strategy.schedule.splice(idx, 1);
     });
     this.render();
   },
@@ -3849,6 +4727,32 @@ const App = {
     this.render();
   },
 
+  // ─── Dashboard Drag ─────────────────────────
+  _dashDragKey: null,
+
+  onDashDragStart(e, key) {
+    this._dashDragKey = key;
+    e.dataTransfer.effectAllowed = 'move';
+  },
+
+  onDashDrop(e, targetKey) {
+    e.preventDefault();
+    const fromKey = this._dashDragKey;
+    if (!fromKey || fromKey === targetKey) return;
+    const DEFAULT_LAYOUT = ['strategy-banner', 'stats-grid', 'open-tasks', 'recent-captures', 'suggestions', 'vault-insights', 'tag-cloud'];
+    Store.update(d => {
+      const layout = d.dashboardLayout || [...DEFAULT_LAYOUT];
+      const fromIdx = layout.indexOf(fromKey);
+      const toIdx = layout.indexOf(targetKey);
+      if (fromIdx === -1 || toIdx === -1) return;
+      layout.splice(fromIdx, 1);
+      layout.splice(toIdx, 0, fromKey);
+      d.dashboardLayout = layout;
+    });
+    this._dashDragKey = null;
+    this.render();
+  },
+
   // ─── Theme Toggle ────────────────────────────
   toggleTheme() {
     const data = Store.get();
@@ -3892,8 +4796,9 @@ const App = {
 
 // ── Keyboard Shortcuts ────────────────────────────
 document.addEventListener('keydown', (e) => {
-  // Skip if typing in an input/textarea
+  // Skip if typing in an input/textarea or using modifier keys (Ctrl+C, Ctrl+V, etc.)
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
 
   const key = e.key.toLowerCase();
   if (key === 'c') {

@@ -63,8 +63,8 @@ On Error GoTo 0
 ' Wait a moment for port to free
 WScript.Sleep 1000
 
-' Start the server (hidden window)
-WshShell.Run "cmd /c cd /d """ & scriptDir & """ && " & nodePath & " server.js", 0, False
+' Start via start-nexus.bat (hidden) — it auto-restarts if the server crashes
+WshShell.Run "cmd /c """ & scriptDir & "\start-nexus.bat""", 0, False
 
 ' Wait for server to start
 WScript.Sleep 2500

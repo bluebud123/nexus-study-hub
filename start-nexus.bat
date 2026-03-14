@@ -79,14 +79,25 @@ echo.
 :: Delay browser open so server has time to start
 start "" /b cmd /c "timeout /t 2 /nobreak >nul && start http://localhost:3456"
 
-:: Start the server
+:: Start the server â€?auto-restart on unexpected crash
+:restart_loop
 "%NODE_CMD%" server.js
+set EXIT_CODE=%errorlevel%
 
-:: If we get here, server crashed or was stopped
+:: Exit code 0 = user pressed Ctrl+C (intentional stop), exit cleanly
+if %EXIT_CODE% equ 0 goto :stopped
+
+:: Any other exit code = unexpected crash, wait briefly then restart
+echo.
+echo [Nexus] Server stopped unexpectedly (code %EXIT_CODE%). Restarting in 3 seconds...
+echo         (Press Ctrl+C to stop)
+timeout /t 3 /nobreak >nul
+goto :restart_loop
+
+:stopped
 echo.
 echo ========================================
 echo   Nexus server stopped.
 echo ========================================
 echo.
-echo If this was unexpected, check above for error messages.
 pause

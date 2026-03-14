@@ -494,14 +494,14 @@ async function computeGrowth() {
         const prev = new Date(sortedDays[i - 1]);
         const curr = new Date(sortedDays[i]);
         const diff = (prev - curr) / 864e5;
-        if (diff === 1) { currentStreak++; } else break;
+        if (Math.round(diff) === 1) { currentStreak++; } else break;
       }
     }
     for (let i = 1; i < sortedDays.length; i++) {
       const prev = new Date(sortedDays[i - 1]);
       const curr = new Date(sortedDays[i]);
       const diff = (prev - curr) / 864e5;
-      if (diff === 1) { streak++; maxStreak = Math.max(maxStreak, streak); }
+      if (Math.round(diff) === 1) { streak++; maxStreak = Math.max(maxStreak, streak); }
       else { streak = 1; }
     }
     longestStreak = Math.max(maxStreak, currentStreak);
@@ -923,6 +923,7 @@ async function handleAPI(req, res, pathname, query) {
       if (!tag) return errRes(res, 'tag required');
       const entries = [];
 
+      // Search rapid log first
       try {
         const rapidContent = await fs.promises.readFile(path.join(CONFIG.vaultPath, CONFIG.rapidLogFile), 'utf8');
         const dailyEntries = parseDailyEntries(rapidContent);
@@ -932,13 +933,56 @@ async function handleAPI(req, res, pathname, query) {
               entries.push({
                 date: entry.date,
                 text: line.replace(/^[\s\-*]+/, '').trim(),
+                source: CONFIG.rapidLogFile,
               });
             }
           }
         }
       } catch {}
 
-      return jsonRes(res, { tag, entries, count: entries.length });
+      // Walk all vault .md files for tagged lines
+      async function walkForTag(dir, rel) {
+        try {
+          const items = await fs.promises.readdir(dir, { withFileTypes: true });
+          for (const item of items) {
+            if (item.name.startsWith('.')) continue;
+            const full = path.join(dir, item.name);
+            const relPath = rel ? rel + '/' + item.name : item.name;
+            if (item.isDirectory()) {
+              await walkForTag(full, relPath);
+            } else if (item.name.endsWith('.md') && item.name !== CONFIG.rapidLogFile) {
+              try {
+                const content = await fs.promises.readFile(full, 'utf8');
+                const dailyEntries = parseDailyEntries(content);
+                if (dailyEntries.length > 0) {
+                  for (const entry of dailyEntries) {
+                    for (const line of entry.lines) {
+                      if (line.toLowerCase().includes('#' + tag)) {
+                        entries.push({ date: entry.date, text: line.replace(/^[\s\-*]+/, '').trim(), source: relPath });
+                      }
+                    }
+                  }
+                } else {
+                  const stat = await fs.promises.stat(full);
+                  const fileDate = stat.mtime.toISOString().slice(0, 10);
+                  for (const line of content.split('\n')) {
+                    if (line.toLowerCase().includes('#' + tag)) {
+                      entries.push({ date: fileDate, text: line.replace(/^[\s\-*#]+/, '').trim(), source: relPath });
+                    }
+                  }
+                }
+              } catch {}
+            }
+          }
+        } catch {}
+      }
+      await walkForTag(CONFIG.vaultPath, '');
+
+      // Sort by date descending, cap at 200
+      entries.sort((a, b) => b.date.localeCompare(a.date));
+      const capped = entries.slice(0, 200);
+
+      return jsonRes(res, { tag, entries: capped, count: entries.length });
     }
 
     // ── Weekly Review ──
@@ -1120,13 +1164,14 @@ async function handleAPI(req, res, pathname, query) {
 }
 
 // ── Server ────────────────────────────────────────
-http.createServer(async (req, res) => {
-  const parsed = url.parse(req.url, true);
+const nexusServer = http.createServer(async (req, res) => {
+  const parsed = new URL(req.url, 'http://localhost');
   const pathname = parsed.pathname;
+  const query = Object.fromEntries(parsed.searchParams);
 
   // API routes
   if (pathname.startsWith('/api/')) {
-    return handleAPI(req, res, pathname, parsed.query);
+    return handleAPI(req, res, pathname, query);
   }
 
   // Static files
@@ -1143,7 +1188,39 @@ http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': contentType });
     res.end(data);
   });
-}).listen(CONFIG.port, () => {
+});
+
+nexusServer.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[Nexus] Port ${CONFIG.port} already in use. Close the other instance and try again.`);
+  } else {
+    console.error('[Nexus] Server error:', err.message);
+  }
+  process.exit(1);
+});
+
+nexusServer.listen(CONFIG.port, () => {
+  console.log('========================================');
   console.log(`Nexus running at http://localhost:${CONFIG.port}`);
   console.log(`Vault: ${CONFIG.useVault ? CONFIG.vaultPath : 'disabled'}`);
+  console.log('========================================');
+});
+
+// ── Crash Logger ─────────────────────────────────
+const LOG_FILE = path.join(__dirname, 'nexus-crash.log');
+function logCrash(type, err) {
+  const line = `[${new Date().toISOString()}] ${type}: ${err && (err.stack || err.message || err)}\n`;
+  console.error(line.trim());
+  try { fs.appendFileSync(LOG_FILE, line); } catch {}
+}
+
+// ── Global crash guards ───────────────────────────
+process.on('uncaughtException', (err) => {
+  logCrash('uncaughtException', err);
+  // Keep running — do not exit
+});
+
+process.on('unhandledRejection', (reason) => {
+  logCrash('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
+  // Keep running — do not exit
 });

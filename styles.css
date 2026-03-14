@@ -1566,6 +1566,83 @@ body.light .btn-ghost:hover {
   z-index: 9;
 }
 
+/* ── Stop Reason Modal ────────────────────────── */
+.stop-reason-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+.stop-reason-modal {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 24px; max-width: 380px; width: 90%;
+}
+.stop-reason-options { display: flex; flex-direction: column; gap: 8px; }
+.stop-reason-options .btn { text-align: left; }
+
+/* ── Habit Enhancements ──────────────────────── */
+.habit-just-checked {
+  animation: habitPop 0.3s ease;
+}
+@keyframes habitPop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+.habit-streak-fire { font-size: 12px; margin-right: 2px; }
+.habit-progress {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.habit-progress .progress-bar { flex: 1; }
+
+/* ── Schedule Checkboxes ─────────────────────── */
+.sched-check { cursor: pointer; flex-shrink: 0; }
+.sched-done { opacity: 0.6; }
+.sched-activity-done { text-decoration: line-through; }
+
+/* ── Tag Line Overlay ────────────────────────── */
+.tag-line-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 80px; z-index: 100; overflow-y: auto;
+}
+.tag-line-panel {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 20px; max-width: 600px;
+  width: 90%; max-height: 70vh; overflow-y: auto;
+}
+
+/* ── Dashboard Drag ──────────────────────────── */
+.dash-card {
+  margin-bottom: 4px;
+  transition: opacity 0.2s;
+}
+.dash-card[draggable="true"] { cursor: grab; }
+.dash-card[draggable="true"]:active { cursor: grabbing; opacity: 0.7; }
+.dash-card.drag-over { border-top: 2px solid var(--accent); padding-top: 2px; }
+
+/* ── Calendar Streak ─────────────────────────── */
+.cal-streak-banner {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px; margin-bottom: 16px;
+  text-align: center;
+}
+.cal-streak-main { font-size: 14px; margin-bottom: 4px; }
+.cal-streak-fire { font-size: 24px; }
+.cal-streak-count { font-size: 28px; font-weight: 700; color: var(--amber); margin: 0 4px; }
+.cal-streak-label { color: var(--text-dim); }
+.cal-milestone {
+  display: inline-block; font-size: 12px; background: rgba(251, 191, 36, 0.15);
+  color: var(--amber); padding: 2px 8px; border-radius: 4px; margin-left: 8px;
+  animation: milestoneGlow 1.5s ease infinite alternate;
+}
+@keyframes milestoneGlow {
+  from { box-shadow: 0 0 4px rgba(251, 191, 36, 0.3); }
+  to { box-shadow: 0 0 12px rgba(251, 191, 36, 0.6); }
+}
+.cal-streak-secondary { font-size: 12px; color: var(--text-dim); }
+.cal-low { background: rgba(124, 111, 247, 0.08); }
+.cal-med { background: rgba(124, 111, 247, 0.18); }
+.cal-high { background: rgba(124, 111, 247, 0.3); }
+
 /* ── Responsive ──────────────────────────────── */
 @media (max-width: 768px) {
   .mobile-menu-btn { display: flex; }
@@ -1668,6 +1745,12 @@ body.light .btn-ghost:hover {
 
   /* Today quick add */
   .today-quick-add { flex-wrap: wrap; }
+
+  /* New feature responsive */
+  .tag-line-panel { width: 95%; max-height: 80vh; }
+  .stop-reason-modal { width: 95%; }
+  .cal-streak-count { font-size: 22px; }
+  .cal-streak-banner { padding: 12px; }
 }
 
 @media (max-width: 420px) {
