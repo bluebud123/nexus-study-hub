@@ -2652,14 +2652,29 @@ const Views = {
     // Build data maps for the month
     const journalMap = {};
     for (const j of data.journal) { journalMap[j.date] = true; }
+    // Vault daily entries
+    const vaultJournalMap = {};
+    for (const e of (App.vaultDailyEntries || [])) { if (e.date) vaultJournalMap[e.date] = e; }
     const taskMap = {};
     for (const t of data.tasks) {
       if (t.due) { if (!taskMap[t.due]) taskMap[t.due] = []; taskMap[t.due].push(t); }
+    }
+    // Vault tasks due dates
+    const vaultTaskMap = {};
+    for (const t of [...(App.vaultTasks?.active||[]), ...(App.vaultTasks?.backlog||[]), ...(App.vaultTasks?.other||[])]) {
+      if (t.dueDate) { if (!vaultTaskMap[t.dueDate]) vaultTaskMap[t.dueDate] = []; vaultTaskMap[t.dueDate].push(t); }
     }
     const sessionMap = {};
     for (const s of (data.timer?.sessions || [])) {
       if (!sessionMap[s.date]) sessionMap[s.date] = 0;
       sessionMap[s.date] += s.duration || 0;
+    }
+    // Captures per day
+    const captureMap = {};
+    for (const c of data.captures) {
+      const d = new Date(c.created).toISOString().slice(0, 10);
+      if (!captureMap[d]) captureMap[d] = [];
+      captureMap[d].push(c);
     }
 
     // Activity streak computation
@@ -2715,15 +2730,19 @@ const Views = {
       const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const isToday = dateStr === todayStr;
       const hasJournal = journalMap[dateStr];
+      const hasVaultJournal = !!vaultJournalMap[dateStr];
       const dueTasks = taskMap[dateStr] || [];
+      const dueVaultTasks = vaultTaskMap[dateStr] || [];
       const studyMins = sessionMap[dateStr] || 0;
+      const dayCaptures = captureMap[dateStr] || [];
       const isActive = activityDays.has(dateStr);
-      const activityCount = (hasJournal ? 1 : 0) + (dueTasks.length > 0 ? 1 : 0) + (studyMins > 0 ? 1 : 0) + (isActive && !hasJournal && !studyMins ? 1 : 0);
-      const intensityClass = activityCount >= 3 ? 'cal-high' : activityCount >= 2 ? 'cal-med' : activityCount >= 1 ? 'cal-low' : '';
+      const activityCount = ((hasJournal || hasVaultJournal) ? 1 : 0) + (dueTasks.length + dueVaultTasks.length > 0 ? 1 : 0) + (studyMins > 0 ? 1 : 0) + (dayCaptures.length > 0 ? 1 : 0) + (isActive ? 1 : 0);
+      const intensityClass = activityCount >= 4 ? 'cal-high' : activityCount >= 2 ? 'cal-med' : activityCount >= 1 ? 'cal-low' : '';
       const dots = [];
-      if (hasJournal) dots.push('var(--green)');
-      if (dueTasks.length) dots.push('var(--red)');
+      if (hasVaultJournal || hasJournal) dots.push('var(--green)');
+      if (dueTasks.length || dueVaultTasks.length) dots.push('var(--red)');
       if (studyMins > 0) dots.push('var(--accent)');
+      if (dayCaptures.length > 0 && !dots.includes('var(--accent)')) dots.push('var(--amber)');
 
       cells += `
         <div class="cal-cell ${isToday ? 'cal-today' : ''} ${intensityClass}" onclick="App._calSelected='${dateStr}'; App.render();">
@@ -2735,9 +2754,12 @@ const Views = {
     // Selected day detail
     const sel = App._calSelected || todayStr;
     const selTasks = (taskMap[sel] || []);
+    const selVaultTasks = (vaultTaskMap[sel] || []);
     const selStudy = sessionMap[sel] || 0;
     const selJournal = journalMap[sel];
+    const selVaultJournal = vaultJournalMap[sel];
     const selSessions = (data.timer?.sessions || []).filter(s => s.date === sel);
+    const selCaptures = (captureMap[sel] || []);
 
     return `
       <h1 class="view-title">Calendar</h1>
@@ -2772,28 +2794,50 @@ const Views = {
           <span><span class="cal-dot" style="background:var(--green); display:inline-block;"></span> Journal</span>
           <span><span class="cal-dot" style="background:var(--red); display:inline-block;"></span> Tasks due</span>
           <span><span class="cal-dot" style="background:var(--accent); display:inline-block;"></span> Study</span>
+          <span><span class="cal-dot" style="background:var(--amber); display:inline-block;"></span> Captures</span>
         </div>
       </div>
 
       <div class="card">
-        <div class="strat-section-label">${sel}</div>
-        ${selStudy > 0 ? `<div style="font-size:13px; margin-bottom:6px;">&#128337; Study: <strong>${selStudy}min</strong> (${selSessions.length} session${selSessions.length !== 1 ? 's' : ''})</div>` : ''}
-        ${selSessions.length > 0 ? `
-          <div style="margin-bottom:6px;">
-            ${selSessions.map(s => `
-              <div style="font-size:12px; padding:2px 0; color:var(--text-dim);">
-                ${s.duration}min ${escapeHTML(s.type || 'Study')}${s.note ? ' — ' + escapeHTML(s.note) : ''}
-                ${s.stoppedEarly ? '<span style="color:var(--amber);">(early)</span>' : ''}
-              </div>
-            `).join('')}
+        <div class="strat-section-label" style="margin-bottom:10px;">${new Date(sel + 'T12:00:00').toLocaleDateString('en', { weekday:'long', month:'long', day:'numeric' })}</div>
+        ${(selVaultJournal || selJournal) ? `
+          <div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:10px; padding:8px; background:var(--bg-input); border-radius:8px; border-left:3px solid var(--green);">
+            <span style="font-size:13px;">📓</span>
+            <div style="flex:1;">
+              <div style="font-size:11px; font-weight:600; color:var(--green); margin-bottom:2px;">Journal</div>
+              ${selVaultJournal?.preview ? `<div style="font-size:12px; color:var(--text-dim); line-height:1.5;">${escapeHTML(selVaultJournal.preview.slice(0, 120))}${selVaultJournal.preview.length > 120 ? '…' : ''}</div>` : `<div style="font-size:12px; color:var(--text-dim);">Entry logged</div>`}
+            </div>
           </div>
         ` : ''}
-        ${selTasks.length ? `
-          <div style="font-size:13px; margin-bottom:6px;">&#128203; Tasks due:</div>
-          ${selTasks.map(t => `<div style="font-size:13px; padding:2px 0; color:${t.done ? 'var(--green)' : 'var(--text)'};">${t.done ? '&#10003;' : '&#9675;'} ${escapeHTML(t.text)}</div>`).join('')}
+        ${selStudy > 0 ? `
+          <div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:10px; padding:8px; background:var(--bg-input); border-radius:8px; border-left:3px solid var(--accent);">
+            <span style="font-size:13px;">⏱</span>
+            <div style="flex:1;">
+              <div style="font-size:11px; font-weight:600; color:var(--accent); margin-bottom:2px;">Study — ${selStudy >= 60 ? Math.floor(selStudy/60)+'h '+(selStudy%60)+'m' : selStudy+'min'}</div>
+              ${selSessions.map(s => `<div style="font-size:12px; color:var(--text-dim);">${s.duration}min ${escapeHTML(s.type||'Study')}${s.note?' — '+escapeHTML(s.note):''}</div>`).join('')}
+            </div>
+          </div>
         ` : ''}
-        ${selJournal ? `<div style="font-size:13px; color:var(--green);">&#9998; Journal entry logged</div>` : ''}
-        ${!selStudy && !selTasks.length && !selJournal ? `<div style="font-size:13px; color:var(--text-dim);">No activity on this day</div>` : ''}
+        ${(selTasks.length || selVaultTasks.length) ? `
+          <div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:10px; padding:8px; background:var(--bg-input); border-radius:8px; border-left:3px solid var(--red);">
+            <span style="font-size:13px;">📋</span>
+            <div style="flex:1;">
+              <div style="font-size:11px; font-weight:600; color:var(--red); margin-bottom:4px;">Tasks due</div>
+              ${[...selTasks, ...selVaultTasks].map(t => `<div style="font-size:12px; padding:1px 0; color:${t.done ? 'var(--green)' : 'var(--text)'};">${t.done ? '✓' : '○'} ${escapeHTML(t.text)}</div>`).join('')}
+            </div>
+          </div>
+        ` : ''}
+        ${selCaptures.length ? `
+          <div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:10px; padding:8px; background:var(--bg-input); border-radius:8px; border-left:3px solid var(--amber);">
+            <span style="font-size:13px;">⚡</span>
+            <div style="flex:1;">
+              <div style="font-size:11px; font-weight:600; color:var(--amber); margin-bottom:4px;">Captures (${selCaptures.length})</div>
+              ${selCaptures.slice(0, 4).map(c => `<div style="font-size:12px; color:var(--text-dim); padding:1px 0;">${escapeHTML(c.text.slice(0, 80))}${c.text.length > 80 ? '…' : ''}</div>`).join('')}
+              ${selCaptures.length > 4 ? `<div style="font-size:11px; color:var(--text-dim);">+${selCaptures.length - 4} more</div>` : ''}
+            </div>
+          </div>
+        ` : ''}
+        ${!selStudy && !selTasks.length && !selVaultTasks.length && !selJournal && !selVaultJournal && !selCaptures.length ? `<div style="font-size:13px; color:var(--text-dim); text-align:center; padding:12px 0;">No activity on this day</div>` : ''}
       </div>
     `;
   },
