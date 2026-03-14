@@ -507,19 +507,23 @@ const Views = {
         </div>`;
       },
 
-      'stats-grid': () => `
+      'stats-grid': () => {
+        const openTaskCount = taskSource === 'nexus' ? openTasks : (App.vaultTasks ? App.vaultTasks.summary.activeCount : openTasks);
+        return `
         <div class="stats-grid">
-          <div class="stat-card"><div class="stat-number">${App.vaultTasks ? App.vaultTasks.summary.activeCount : openTasks}</div><div class="stat-label">Open Tasks <span style="font-size:10px; color:var(--text-dim);">(active)</span></div></div>
+          <div class="stat-card"><div class="stat-number">${openTaskCount}</div><div class="stat-label">Open Tasks <span style="font-size:10px; color:var(--text-dim);">(active)</span></div></div>
           <div class="stat-card"><div class="stat-number">${doneTasks}</div><div class="stat-label">Completed</div></div>
           <div class="stat-card"><div class="stat-number">${totalCaptures}</div><div class="stat-label">Captures</div></div>
           <div class="stat-card"><div class="stat-number">${journalEntries}</div><div class="stat-label">Journal</div></div>
           <div class="stat-card"><div class="stat-number">${activeGoals}</div><div class="stat-label">Goals</div></div>
-        </div>`,
+        </div>`;
+      },
 
       'open-tasks': () => {
         const showVault = taskSource !== 'nexus' && vaultOpenTasks.length > 0;
         const showNexus = taskSource !== 'vault' && recentTasks.length > 0;
-        if (!showVault && !showNexus) return `<h3 style="margin-bottom:12px; font-size:16px; color:var(--text-dim);">Open Tasks</h3><div class="empty-state" style="padding:20px;"><div class="empty-text">No open tasks.</div></div>`;
+        const emptyHint = taskSource === 'nexus' ? 'No Nexus tasks yet — add one in the Tasks view.' : taskSource === 'vault' ? 'No vault tasks found.' : 'No open tasks.';
+        if (!showVault && !showNexus) return `<h3 style="margin-bottom:12px; font-size:16px; color:var(--text-dim);">Open Tasks</h3><div class="empty-state" style="padding:20px;"><div class="empty-text">${emptyHint}</div></div>`;
         return `
         <h3 style="margin-bottom:12px; font-size:16px; color:var(--text-dim);">Open Tasks</h3>
         ${showVault ? `
@@ -1558,7 +1562,7 @@ const Views = {
               <option value="vault" ${data.taskSource==='vault'?'selected':''}>Vault tasks only</option>
             </select>
           </div>
-          <div style="font-size:11px; color:var(--text-dim);">Use "Nexus only" if you don't have an Obsidian vault.</div>
+          <div style="font-size:11px; color:var(--text-dim);">Use "Nexus only" if you don't have an Obsidian vault. <span style="color:var(--green);">Saved automatically.</span></div>
         </div>
 
         <!-- Vault Connection -->
@@ -3056,101 +3060,186 @@ const App = {
   _setupStep: 1,
   _setupUseVault: false,
   _setupVaultPath: '',
-  _setupExamDate: '',
+  _setupRapidLog: '02 Rapid logging.md',
+  _setupTaskSource: 'both',
   _setupBrowsePath: '',
   _setupFolders: [],
+  _setupProjects: [],   // [{name,deadline,color,icon}]
 
   showSetupWizard() {
     document.getElementById('sidebar').style.display = 'none';
-    this._setupExamDate = new Date(new Date().getFullYear(), 10, 1).toISOString().slice(0, 10);
     this._renderSetup();
   },
 
   _renderSetup() {
     const step = this._setupStep;
+    const TOTAL = 5;
     const content = document.getElementById('content');
     content.style.marginLeft = '0';
-    content.style.maxWidth = '500px';
-    content.style.margin = '60px auto';
+    content.style.maxWidth = '520px';
+    content.style.margin = '40px auto';
     content.style.padding = '0 20px';
+
+    const progressBar = `
+      <div style="display:flex; gap:6px; justify-content:center; margin-bottom:28px;">
+        ${Array.from({length:TOTAL},(_,i)=>`<div style="width:32px;height:4px;border-radius:2px;background:${i<step?'var(--accent)':'var(--border)'}"></div>`).join('')}
+      </div>`;
 
     if (step === 1) {
       content.innerHTML = `
-        <div style="text-align:center; margin-bottom:30px;">
-          <div style="font-size:48px; color:var(--accent);">&#9670;</div>
-          <h1 style="margin:8px 0;">Welcome to Nexus</h1>
-          <p class="view-subtitle">Your personal evolution hub. Let's get you set up.</p>
+        ${progressBar}
+        <div style="text-align:center; margin-bottom:24px;">
+          <div style="font-size:52px;">◈</div>
+          <h1 style="margin:8px 0 4px;">Welcome to Nexus</h1>
+          <p class="view-subtitle">Your personal evolution hub. Let's set you up in 5 steps.</p>
         </div>
         <div class="card" style="padding:20px;">
-          <label style="font-size:14px; font-weight:600; display:block; margin-bottom:8px;">When is your exam?</label>
-          <input type="date" id="setup-exam-date" class="strat-settings-input" value="${this._setupExamDate}" style="width:100%; margin-bottom:16px;">
-          <p style="font-size:12px; color:var(--text-dim);">You can always change this later in Strategy → Settings.</p>
-          <div style="text-align:right; margin-top:16px;">
-            <button class="btn btn-primary" onclick="App._setupExamDate=document.getElementById('setup-exam-date').value; App._setupStep=2; App._renderSetup();">Next</button>
+          <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Your name</label>
+          <input type="text" id="setup-name" class="strat-settings-input" placeholder="e.g. Alex" style="width:100%; margin-bottom:16px;" value="${escapeHTML(Store.get().userName || '')}">
+          <p style="font-size:12px; color:var(--text-dim); margin-bottom:16px;">Used for personalised greetings. Optional.</p>
+          <div style="text-align:right;">
+            <button class="btn btn-primary" onclick="
+              const n=document.getElementById('setup-name').value.trim();
+              if(n) Store.update(d=>{d.userName=n;});
+              App._setupStep=2; App._renderSetup();">Next →</button>
           </div>
-        </div>
-      `;
+        </div>`;
+
     } else if (step === 2) {
+      const projects = this._setupProjects;
       content.innerHTML = `
-        <div style="text-align:center; margin-bottom:30px;">
-          <div style="font-size:48px; color:var(--accent);">&#128218;</div>
-          <h1 style="margin:8px 0;">Obsidian Vault</h1>
-          <p class="view-subtitle">Nexus can sync with your Obsidian vault for journaling, tasks, and reviews.</p>
+        ${progressBar}
+        <div style="text-align:center; margin-bottom:24px;">
+          <div style="font-size:40px;">🎯</div>
+          <h1 style="margin:8px 0 4px;">Your Projects</h1>
+          <p class="view-subtitle">Add the goals or projects you're working towards.</p>
+        </div>
+        <div class="card" style="padding:20px; margin-bottom:12px;">
+          ${projects.length === 0 ? `<p style="font-size:13px; color:var(--text-dim); margin-bottom:12px;">No projects yet. Add your first one below.</p>` : `
+            <div style="margin-bottom:12px;">
+              ${projects.map((p,i)=>`
+                <div style="display:flex; align-items:center; gap:8px; padding:8px; background:var(--bg-input); border-radius:8px; margin-bottom:6px;">
+                  <span>${escapeHTML(p.icon)}</span>
+                  <span style="flex:1; font-size:13px;">${escapeHTML(p.name)}</span>
+                  <span style="font-size:11px; color:var(--text-dim);">Due ${p.deadline}</span>
+                  <button class="btn btn-ghost btn-sm" style="color:var(--red); padding:2px 6px;" onclick="App._setupProjects.splice(${i},1); App._renderSetup();">✕</button>
+                </div>`).join('')}
+            </div>`}
+          <details ${projects.length===0?'open':''}>
+            <summary style="font-size:13px; color:var(--accent); cursor:pointer; margin-bottom:10px;">${projects.length===0?'Add project':'+ Add another'}</summary>
+            <div style="margin-top:10px;">
+              <div style="display:flex; gap:8px; margin-bottom:8px;">
+                <input type="text" id="sp-icon" class="strat-settings-input" placeholder="🎯" style="width:52px; text-align:center;" value="🎯">
+                <input type="text" id="sp-name" class="strat-settings-input" placeholder="Project name" style="flex:1;">
+              </div>
+              <div style="display:flex; gap:8px; margin-bottom:10px;">
+                <input type="date" id="sp-deadline" class="strat-settings-input" style="flex:1;">
+                <input type="color" id="sp-color" value="#7c6ff7" style="width:40px; height:36px; border:none; background:none; cursor:pointer;">
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="
+                const icon=document.getElementById('sp-icon').value.trim()||'🎯';
+                const name=document.getElementById('sp-name').value.trim();
+                const deadline=document.getElementById('sp-deadline').value;
+                const color=document.getElementById('sp-color').value;
+                if(!name||!deadline){toast('Name and deadline required');return;}
+                App._setupProjects.push({id:uid(),name,deadline,color,icon});
+                App._renderSetup();">Add</button>
+            </div>
+          </details>
+        </div>
+        <div style="display:flex; gap:8px; justify-content:space-between;">
+          <button class="btn btn-ghost" onclick="App._setupStep=1; App._renderSetup();">← Back</button>
+          <button class="btn btn-primary" onclick="App._setupStep=3; App._renderSetup();">${projects.length===0?'Skip →':'Next →'}</button>
+        </div>`;
+
+    } else if (step === 3) {
+      content.innerHTML = `
+        ${progressBar}
+        <div style="text-align:center; margin-bottom:24px;">
+          <div style="font-size:40px;">📓</div>
+          <h1 style="margin:8px 0 4px;">Obsidian Vault</h1>
+          <p class="view-subtitle">Nexus can sync with Obsidian for journaling, tasks, and reviews.</p>
         </div>
         <div class="card" style="padding:20px;">
           <p style="font-size:13px; color:var(--text-dim); margin-bottom:16px;">Do you use Obsidian and want to connect your vault?</p>
-          <div style="display:flex; gap:12px;">
-            <button class="btn btn-primary" style="flex:1;" onclick="App._setupUseVault=true; App._setupStep=3; App._browseFolders(''); App._renderSetup();">Yes, connect vault</button>
-            <button class="btn btn-ghost" style="flex:1;" onclick="App._setupUseVault=false; App._setupStep=4; App._renderSetup();">No, skip for now</button>
+          <div style="display:flex; gap:12px; margin-bottom:12px;">
+            <button class="btn btn-primary" style="flex:1;" onclick="App._setupUseVault=true; App._setupTaskSource='both'; App._setupStep=4; App._browseFolders(''); App._renderSetup();">Yes, connect vault</button>
+            <button class="btn btn-ghost" style="flex:1;" onclick="App._setupUseVault=false; App._setupTaskSource='nexus'; App._setupStep=5; App._renderSetup();">No vault — use Nexus only</button>
           </div>
-          <p style="font-size:11px; color:var(--text-dim); margin-top:12px;">You can connect it later from the Shortcuts & Guide page.</p>
+          <p style="font-size:11px; color:var(--text-dim);">You can connect it later in Strategy → Settings.</p>
         </div>
-      `;
-    } else if (step === 3) {
+        <div style="text-align:left; margin-top:12px;">
+          <button class="btn btn-ghost" onclick="App._setupStep=2; App._renderSetup();">← Back</button>
+        </div>`;
+
+    } else if (step === 4) {
       content.innerHTML = `
+        ${progressBar}
         <div style="text-align:center; margin-bottom:20px;">
-          <h1 style="margin:8px 0;">Select Vault Folder</h1>
+          <h1 style="margin:8px 0 4px;">Select Vault Folder</h1>
           <p class="view-subtitle">Navigate to your Obsidian vault folder.</p>
         </div>
         <div class="card" style="padding:20px;">
           <div style="font-size:12px; color:var(--text-dim); margin-bottom:8px;">Current: <strong>${escapeHTML(this._setupBrowsePath || '/')}</strong></div>
-          <div style="max-height:250px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; margin-bottom:12px;">
-            <div style="padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border); color:var(--accent);" onclick="App._browseFolders(App._setupBrowseParent || '/')">&#8592; Parent folder</div>
+          <div style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; margin-bottom:12px;">
+            <div style="padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border); color:var(--accent);" onclick="App._browseFolders(App._setupBrowseParent || '/')">← Parent folder</div>
             ${this._setupFolders.map(f => `
-              <div style="padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border);" onmouseover="this.style.background='var(--bg-card)'" onmouseout="this.style.background=''" onclick="App._browseFolders('${f.path.replace(/'/g, "\\'")}')">&#128193; ${escapeHTML(f.name)}</div>
+              <div style="padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border);" onmouseover="this.style.background='var(--bg-card)'" onmouseout="this.style.background=''" onclick="App._browseFolders('${f.path.replace(/'/g, "\\'")}')">📁 ${escapeHTML(f.name)}</div>
             `).join('')}
             ${this._setupFolders.length === 0 ? '<div style="padding:12px; font-size:12px; color:var(--text-dim);">No subfolders here</div>' : ''}
           </div>
-          <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
-            <input type="text" id="setup-vault-path" class="strat-settings-input" placeholder="Or type path manually" value="${escapeHTML(this._setupVaultPath || this._setupBrowsePath || '')}" style="flex:1;">
-          </div>
+          <input type="text" id="setup-vault-path" class="strat-settings-input" placeholder="Or type path manually" value="${escapeHTML(this._setupVaultPath || this._setupBrowsePath || '')}" style="width:100%; margin-bottom:12px;">
+          <label style="font-size:12px; color:var(--text-dim); display:block; margin-bottom:4px;">Daily journal / rapid log filename:</label>
+          <input type="text" id="setup-rapid-log" class="strat-settings-input" placeholder="e.g. Daily Notes.md" value="${escapeHTML(this._setupRapidLog)}" style="width:100%; margin-bottom:4px;">
+          <div style="font-size:11px; color:var(--text-dim); margin-bottom:12px;">The .md file Nexus reads for your daily journal entries.</div>
           <div style="display:flex; gap:8px; justify-content:space-between;">
-            <button class="btn btn-ghost" onclick="App._setupStep=2; App._renderSetup();">Back</button>
-            <button class="btn btn-primary" onclick="App._setupVaultPath=document.getElementById('setup-vault-path').value; App._setupStep=4; App._renderSetup();">Select this folder</button>
+            <button class="btn btn-ghost" onclick="App._setupStep=3; App._renderSetup();">← Back</button>
+            <button class="btn btn-primary" onclick="
+              App._setupVaultPath=document.getElementById('setup-vault-path').value;
+              App._setupRapidLog=document.getElementById('setup-rapid-log').value||'02 Rapid logging.md';
+              App._setupStep=5; App._renderSetup();">Select this folder →</button>
           </div>
-        </div>
-      `;
-    } else if (step === 4) {
+        </div>`;
+
+    } else if (step === 5) {
+      const taskLabels = { both:'Both (Nexus + Vault tasks)', nexus:'Nexus tasks only', vault:'Vault tasks only' };
       content.innerHTML = `
-        <div style="text-align:center; margin-bottom:30px;">
-          <div style="font-size:48px; color:var(--green);">&#10003;</div>
-          <h1 style="margin:8px 0;">All Set!</h1>
-          <p class="view-subtitle">Here's your setup:</p>
+        ${progressBar}
+        <div style="text-align:center; margin-bottom:24px;">
+          <div style="font-size:52px; color:var(--green);">✓</div>
+          <h1 style="margin:8px 0 4px;">All Set!</h1>
+          <p class="view-subtitle">Review your setup before launching.</p>
         </div>
-        <div class="card" style="padding:20px;">
-          <div style="margin-bottom:12px;">
-            <strong>Exam date:</strong> ${this._setupExamDate || 'Not set'}
-          </div>
-          <div style="margin-bottom:16px;">
-            <strong>Obsidian vault:</strong> ${this._setupUseVault ? escapeHTML(this._setupVaultPath) : 'Not connected'}
-          </div>
-          <p style="font-size:12px; color:var(--text-dim); margin-bottom:16px;">You can change any of these later.</p>
-          <div style="display:flex; gap:8px; justify-content:space-between;">
-            <button class="btn btn-ghost" onclick="App._setupStep=${this._setupUseVault ? 3 : 2}; App._renderSetup();">Back</button>
-            <button class="btn btn-primary" onclick="App._completeSetup();">Launch Nexus</button>
-          </div>
+        <div class="card" style="padding:20px; margin-bottom:12px;">
+          <table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:8px 0; color:var(--text-dim); width:130px;">Projects</td>
+              <td style="padding:8px 0;">${this._setupProjects.length > 0 ? this._setupProjects.map(p=>`${p.icon} ${escapeHTML(p.name)}`).join(', ') : '<span style="color:var(--text-dim);">None added</span>'}</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:8px 0; color:var(--text-dim);">Obsidian vault</td>
+              <td style="padding:8px 0;">${this._setupUseVault ? `<span style="color:var(--green);">✓</span> ${escapeHTML(this._setupVaultPath)||'(path not set)'}` : '<span style="color:var(--text-dim);">Not connected</span>'}</td>
+            </tr>
+            ${this._setupUseVault ? `<tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:8px 0; color:var(--text-dim);">Journal file</td>
+              <td style="padding:8px 0;">${escapeHTML(this._setupRapidLog)}</td>
+            </tr>` : ''}
+            <tr>
+              <td style="padding:8px 0; color:var(--text-dim);">Task source</td>
+              <td style="padding:8px 0;">
+                <select class="strat-settings-input" id="setup-tasksrc" style="font-size:12px;">
+                  <option value="both" ${this._setupTaskSource==='both'?'selected':''}>Both (Nexus + Vault)</option>
+                  <option value="nexus" ${this._setupTaskSource==='nexus'?'selected':''}>Nexus only</option>
+                  <option value="vault" ${this._setupTaskSource==='vault'?'selected':''}>Vault only</option>
+                </select>
+              </td>
+            </tr>
+          </table>
         </div>
-      `;
+        <div style="display:flex; gap:8px; justify-content:space-between;">
+          <button class="btn btn-ghost" onclick="App._setupStep=${this._setupUseVault ? 4 : 3}; App._renderSetup();">← Back</button>
+          <button class="btn btn-primary" onclick="App._setupTaskSource=document.getElementById('setup-tasksrc').value; App._completeSetup();">🚀 Launch Nexus</button>
+        </div>`;
     }
   },
 
@@ -3167,17 +3256,29 @@ const App = {
   },
 
   async _completeSetup() {
-    // Save config to server
+    // Save vault config to server
     await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vaultPath: this._setupVaultPath, useVault: this._setupUseVault })
+      body: JSON.stringify({
+        vaultPath: this._setupUseVault ? this._setupVaultPath : '',
+        useVault: this._setupUseVault,
+        rapidLogFile: this._setupRapidLog
+      })
     });
-    // Save exam date to Store
+    // Save projects + taskSource to Store
     await Store.init();
-    if (this._setupExamDate) {
-      Store.update(d => d.strategy.examDate = this._setupExamDate);
-    }
+    Store.update(d => {
+      d.taskSource = this._setupTaskSource;
+      if (this._setupProjects.length > 0) {
+        if (!d.strategy.projects) d.strategy.projects = [];
+        for (const p of this._setupProjects) {
+          if (!d.strategy.projects.find(x => x.name === p.name)) {
+            d.strategy.projects.push(p);
+          }
+        }
+      }
+    });
     // Reload to start fresh with full app
     window.location.reload();
   },
@@ -3661,12 +3762,29 @@ const App = {
   },
 
   toggleChecklistItem(clId, secIdx, itemIdx) {
+    let logEntry = null;
     Store.update(d => {
       const cl = (d.checklists || []).find(c => c.id === clId);
       if (cl && cl.sections[secIdx] && cl.sections[secIdx].items[itemIdx]) {
-        cl.sections[secIdx].items[itemIdx].done = !cl.sections[secIdx].items[itemIdx].done;
+        const item = cl.sections[secIdx].items[itemIdx];
+        item.done = !item.done;
+        if (item.done && cl.projectId && App.vaultAvailable) {
+          const proj = (d.strategy.projects || []).find(p => p.id === cl.projectId);
+          if (proj) {
+            const secName = cl.sections[secIdx].name || '';
+            logEntry = {
+              projectName: proj.name,
+              projectFile: proj.name.replace(/[/\\?%*:|"<>]/g, '-') + '.md',
+              text: `✓ ${secName ? '[' + secName + '] ' : ''}${item.text}`
+            };
+          }
+        }
       }
     });
+    if (logEntry) {
+      fetch('/api/vault/project-log', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(logEntry) }).catch(() => {});
+    }
     this.render();
   },
 
@@ -3899,10 +4017,21 @@ const App = {
     const deadline = document.getElementById('new-proj-deadline')?.value;
     const color = document.getElementById('new-proj-color')?.value || '#7c6ff7';
     if (!name || !deadline) { toast('Name and deadline required'); return; }
+    const projId = uid();
     Store.update(d => {
       if (!d.strategy.projects) d.strategy.projects = [];
-      d.strategy.projects.push({ id: uid(), name, deadline, color, icon });
+      d.strategy.projects.push({ id: projId, name, deadline, color, icon });
     });
+    if (App.vaultAvailable) {
+      const today = new Date().toISOString().slice(0, 10);
+      const fileName = name.replace(/[/\\?%*:|"<>]/g, '-') + '.md';
+      const initContent = `# ${name}\n\nCreated: ${today}\nDeadline: ${deadline}\n\n`;
+      fetch('/api/vault/file', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: fileName, content: initContent }) })
+        .then(r => r.json())
+        .then(r => { if (r.success) toast(`Created ${fileName} in vault`); })
+        .catch(() => {});
+    }
     this.render();
   },
 
@@ -3917,7 +4046,15 @@ const App = {
 
   deleteProject(id) {
     if (!confirm('Delete this project?')) return;
+    const proj = (Store.get().strategy.projects || []).find(p => p.id === id);
     Store.update(d => { d.strategy.projects = (d.strategy.projects || []).filter(p => p.id !== id); });
+    if (proj && App.vaultAvailable) {
+      const fileName = proj.name.replace(/[/\\?%*:|"<>]/g, '-') + '.md';
+      if (confirm(`Also delete ${fileName} from vault?`)) {
+        fetch('/api/vault/file', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: fileName, force: true }) }).catch(() => {});
+      }
+    }
     this.render();
   },
 

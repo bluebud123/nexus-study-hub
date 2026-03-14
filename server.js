@@ -702,9 +702,16 @@ async function handleAPI(req, res, pathname, query) {
       return jsonRes(res, { success: true, path: body.path });
     }
 
-    // ── Delete File (disabled for safety) ──
+    // ── Delete File ──
     if (pathname === '/api/vault/file' && method === 'DELETE') {
-      return errRes(res, 'Delete disabled — vault files are protected', 403);
+      const body = await parseBody(req);
+      if (!body.path) return errRes(res, 'path required');
+      if (!body.force) return errRes(res, 'Set force:true to confirm deletion', 400);
+      const full = safePath(body.path);
+      if (!full) return errRes(res, 'Invalid path', 403);
+      if (!fs.existsSync(full)) return jsonRes(res, { success: true, notFound: true });
+      await fs.promises.unlink(full);
+      return jsonRes(res, { success: true });
     }
 
     // ── Search ──
@@ -882,6 +889,42 @@ async function handleAPI(req, res, pathname, query) {
           const newSection = `#### ${today}\n${bullet}\n`;
           lines.splice(insertIdx, 0, newSection);
           content = lines.join('\n');
+        }
+
+        const tmp = full + '.tmp';
+        await fs.promises.writeFile(tmp, content, 'utf8');
+        await fs.promises.rename(tmp, full);
+      });
+
+      return jsonRes(res, { success: true, date: today }, 201);
+    }
+
+    // ── Project Log (append checklist check to project MD) ──
+    if (pathname === '/api/vault/project-log' && method === 'POST') {
+      if (!CONFIG.vaultPath) return errRes(res, 'Vault not configured');
+      const body = await parseBody(req);
+      if (!body.projectFile || !body.text) return errRes(res, 'projectFile and text required');
+      const full = safePath(body.projectFile);
+      if (!full) return errRes(res, 'Invalid path', 403);
+      const today = todayStr();
+      const now = new Date();
+      const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+      const bullet = `- [${time}] ${body.text}`;
+      const headerPattern = new RegExp(`^(####\\s+)?${today.replace(/-/g, '\\-')}\\s*$`, 'm');
+
+      await withWriteLock(async () => {
+        let content = '';
+        try { content = await fs.promises.readFile(full, 'utf8'); } catch { content = `# ${body.projectName || 'Project'}\n\n`; }
+
+        if (headerPattern.test(content)) {
+          const lines = content.split('\n');
+          const headerIdx = lines.findIndex(l => headerPattern.test(l));
+          let insertIdx = headerIdx + 1;
+          while (insertIdx < lines.length && !lines[insertIdx].startsWith('####')) insertIdx++;
+          lines.splice(insertIdx, 0, bullet);
+          content = lines.join('\n');
+        } else {
+          content = content.trimEnd() + `\n\n#### ${today}\n${bullet}\n`;
         }
 
         const tmp = full + '.tmp';
