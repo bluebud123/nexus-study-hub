@@ -304,6 +304,7 @@ async function computeStats() {
   return {
     totalFiles,
     totalDailyEntries: dailyEntries.length,
+    dailyDates: dailyEntries.map(e => e.date).filter(Boolean),
     dateRange: { first: dates[0] || null, last: dates[dates.length - 1] || null },
     totalTasks,
     completedTasks,
@@ -899,6 +900,25 @@ async function handleAPI(req, res, pathname, query) {
       return jsonRes(res, { success: true, date: today }, 201);
     }
 
+    // ── Create Project File in nexus_project/ ──
+    if (pathname === '/api/vault/create-project-file' && method === 'POST') {
+      if (!CONFIG.vaultPath) return errRes(res, 'Vault not configured');
+      const body = await parseBody(req);
+      if (!body.name || !body.vaultFile) return errRes(res, 'name and vaultFile required');
+      const full = safePath(body.vaultFile);
+      if (!full) return errRes(res, 'Invalid path', 403);
+      const dir = path.dirname(full);
+      const today = todayStr();
+      await fs.promises.mkdir(dir, { recursive: true });
+      let exists = false;
+      try { await fs.promises.access(full); exists = true; } catch {}
+      if (!exists) {
+        const content = `# ${body.name}\nCreated: ${today}\n\n`;
+        await fs.promises.writeFile(full, content, 'utf8');
+      }
+      return jsonRes(res, { success: true, vaultFile: body.vaultFile });
+    }
+
     // ── Project Log (append checklist check to project MD) ──
     if (pathname === '/api/vault/project-log' && method === 'POST') {
       if (!CONFIG.vaultPath) return errRes(res, 'Vault not configured');
@@ -913,6 +933,7 @@ async function handleAPI(req, res, pathname, query) {
       const headerPattern = new RegExp(`^(####\\s+)?${today.replace(/-/g, '\\-')}\\s*$`, 'm');
 
       await withWriteLock(async () => {
+        await fs.promises.mkdir(path.dirname(full), { recursive: true });
         let content = '';
         try { content = await fs.promises.readFile(full, 'utf8'); } catch { content = `# ${body.projectName || 'Project'}\n\n`; }
 
@@ -1008,7 +1029,7 @@ async function handleAPI(req, res, pathname, query) {
             const relPath = rel ? rel + '/' + item.name : item.name;
             if (item.isDirectory()) {
               await walkForTag(full, relPath);
-            } else if (item.name.endsWith('.md') && item.name !== CONFIG.rapidLogFile) {
+            } else if (item.name.endsWith('.md') && item.name !== CONFIG.rapidLogFile && item.name !== CONFIG.weeklyReviewFile) {
               try {
                 const content = await fs.promises.readFile(full, 'utf8');
                 const dailyEntries = parseDailyEntries(content);
@@ -1025,7 +1046,7 @@ async function handleAPI(req, res, pathname, query) {
                   const fileDate = stat.mtime.toISOString().slice(0, 10);
                   for (const line of content.split('\n')) {
                     if (line.toLowerCase().includes('#' + tag)) {
-                      entries.push({ date: fileDate, text: line.replace(/^[\s\-*>#|]+/, '').trim(), source: relPath });
+                      entries.push({ date: fileDate, text: line.replace(/^[\s\-*>|]+/, '').trim(), source: relPath });
                     }
                   }
                 }

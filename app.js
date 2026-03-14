@@ -433,6 +433,7 @@ const Views = {
       activityDays.add(d);
     }
     for (const e of (App.vaultDailyEntries || [])) { if (e.date) activityDays.add(e.date); }
+    for (const d of (App.vaultStats?.dailyDates || [])) { activityDays.add(d); }
     for (const [date, log] of Object.entries(data.scheduleLog || {})) {
       if (Object.values(log).some(v => v)) activityDays.add(date);
     }
@@ -508,7 +509,10 @@ const Views = {
       },
 
       'stats-grid': () => {
-        const openTaskCount = taskSource === 'nexus' ? openTasks : (App.vaultTasks ? App.vaultTasks.summary.activeCount : openTasks);
+        const vaultActive = App.vaultTasks ? App.vaultTasks.summary.activeCount : 0;
+        const openTaskCount = taskSource === 'nexus' ? openTasks
+          : taskSource === 'vault' ? vaultActive
+          : vaultActive + openTasks;  // 'both': sum vault + nexus
         return `
         <div class="stats-grid">
           <div class="stat-card"><div class="stat-number">${openTaskCount}</div><div class="stat-label">Open Tasks <span style="font-size:10px; color:var(--text-dim);">(active)</span></div></div>
@@ -837,12 +841,7 @@ const Views = {
             }).join('')}
           </div>
         </div>`;
-      })() : `
-        <div class="card" style="text-align:center; padding:12px;">
-          <span style="font-size:13px; color:var(--text-dim);">No habits tracked yet.</span>
-          <button class="btn btn-ghost btn-sm" onclick="App.showHabitEditor=true; App.render();" style="margin-left:8px;">Add Habits</button>
-        </div>
-      `}
+      })() : ''}
 
       <!-- Habit Editor (inline) -->
       ${App.showHabitEditor ? `
@@ -1077,8 +1076,11 @@ const Views = {
     }
 
     const taskSrc = data.taskSource || 'both';
+    const nexusOpen = data.tasks.filter(t => !t.done).length;
+    const vaultActive = App.vaultTasks ? App.vaultTasks.summary.activeCount : 0;
+    const totalOpen = taskSrc === 'nexus' ? nexusOpen : taskSrc === 'vault' ? vaultActive : nexusOpen + vaultActive;
     return `
-      <h1 class="view-title">Tasks</h1>
+      <h1 class="view-title">Tasks ${totalOpen > 0 ? `<span style="font-size:14px; font-weight:600; color:var(--accent); background:var(--accent)18; border-radius:12px; padding:2px 10px; vertical-align:middle;">${totalOpen} open</span>` : ''}</h1>
       <p class="view-subtitle">Track what needs to get done</p>
 
       <div class="input-row">
@@ -1327,25 +1329,35 @@ const Views = {
     let tabContent = '';
 
     if (tab === 'roadmap') {
+      if (!App.calendarYear) App.calendarYear = parseInt(month.slice(0,4), 10) || new Date().getFullYear();
+      const calYear = App.calendarYear;
+      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       tabContent = `
-        <!-- Month Pills -->
-        <div class="strat-months">
-          <button class="strat-month-pill" onclick="App.extendRoadmap('back')" title="Add earlier month" style="font-size:14px; min-width:32px;">&#9664;</button>
-          ${roadmapMonths.map(m => {
-            const mMs = s.milestones[m.key] || [];
-            const mD = mMs.filter(x => x.done).length;
-            const allD = mMs.length > 0 && mD === mMs.length;
-            const remaining = mMs.length - mD;
-            const isCur = m.key === curMonthKey();
-            return `<button class="strat-month-pill ${month === m.key ? 'active' : ''} ${allD ? 'all-done' : ''}"
-              onclick="App.setStrategyMonth('${m.key}')"
-              style="${isCur && month !== m.key ? 'border-style:dashed;' : ''}">
-              ${m.label}
-              ${mMs.length > 0 && !allD ? `<span class="strat-month-badge">${remaining}</span>` : ''}
-              ${allD && mMs.length > 0 ? '<span class="strat-month-check">&#10003;</span>' : ''}
-            </button>`;
+        <!-- Calendar Month Picker -->
+        <div class="roadmap-cal-header">
+          <button class="roadmap-cal-btn" onclick="App.calYear(-1)">&#9664;</button>
+          <span class="roadmap-cal-year">${calYear}</span>
+          <button class="roadmap-cal-btn" onclick="App.calYear(1)">&#9654;</button>
+        </div>
+        <div class="roadmap-month-grid">
+          ${monthNames.map((lbl, i) => {
+            const key = `${calYear}-${String(i+1).padStart(2,'0')}`;
+            const isActive  = key === month;
+            const isCurrent = key === curMonthKey();
+            const mMs       = s.milestones[key] || [];
+            const hasDot    = mMs.length > 0;
+            const allDone   = hasDot && mMs.every(m => m.done);
+            const cls = [
+              'roadmap-mcell',
+              isActive  ? 'active'   : '',
+              isCurrent ? 'today'    : '',
+              allDone   ? 'all-done' : hasDot ? 'has-data' : ''
+            ].filter(Boolean).join(' ');
+            return `<div class="${cls}" onclick="App.setStrategyMonth('${key}')">
+              ${lbl}
+              ${hasDot ? '<span class="roadmap-mcell-dot"></span>' : ''}
+            </div>`;
           }).join('')}
-          <button class="strat-month-pill" onclick="App.extendRoadmap('forward')" title="Add later month" style="font-size:14px; min-width:32px;">&#9654;</button>
         </div>
 
         <!-- Allocation Card -->
@@ -2402,7 +2414,9 @@ const Views = {
             </div>
             ${App.growthTagEntries.entries.slice(0, 30).map(e => `
               <div class="lesson-item">
-                <div class="lesson-date">${e.date}</div>
+                <div class="lesson-date">
+                  ${e.date}${e.source === 'app' ? ' <span style="font-weight:400; opacity:0.5; font-size:10px;">· app</span>' : ''}
+                </div>
                 <div class="lesson-text">${escapeHTML(e.text)}</div>
               </div>
             `).join('')}
@@ -3660,15 +3674,8 @@ const App = {
     this.render();
   },
 
-  extendRoadmap(dir) {
-    const cur = curMonthKey();
-    Store.update(d => {
-      const s = d.strategy;
-      if (!s.roadmapStart) s.roadmapStart = addMonths(cur, -2);
-      if (!s.roadmapEnd)   s.roadmapEnd   = addMonths(cur, 6);
-      if (dir === 'back') s.roadmapStart = addMonths(s.roadmapStart, -1);
-      else                s.roadmapEnd   = addMonths(s.roadmapEnd, 1);
-    });
+  calYear(delta) {
+    this.calendarYear = (this.calendarYear || new Date().getFullYear()) + delta;
     this.render();
   },
 
@@ -3751,11 +3758,17 @@ const App = {
     const reader = new FileReader();
     reader.onload = (e) => {
       const cl = parseChecklistMD(e.target.result, file.name.replace(/\.[^.]+$/, ''));
+      const safe = cl.name.replace(/[/\\?%*:|"<>]/g, '-');
+      cl.vaultFile = `nexus_project/${safe}.md`;
       Store.update(d => { if (!d.checklists) d.checklists = []; d.checklists.push(cl); });
       toast(`Checklist "${cl.name}" uploaded — ${cl.sections.flatMap(s => s.items).length} items`);
       App.strategyTab = 'projects';
       App.strategyProject = cl.id;
       App._projAddOpen = false;
+      if (App.vaultAvailable) {
+        fetch('/api/vault/create-project-file', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: cl.name, vaultFile: cl.vaultFile }) }).catch(() => {});
+      }
       this.render();
     };
     reader.readAsText(file);
@@ -3768,13 +3781,15 @@ const App = {
       if (cl && cl.sections[secIdx] && cl.sections[secIdx].items[itemIdx]) {
         const item = cl.sections[secIdx].items[itemIdx];
         item.done = !item.done;
-        if (item.done && cl.projectId && App.vaultAvailable) {
-          const proj = (d.strategy.projects || []).find(p => p.id === cl.projectId);
-          if (proj) {
-            const secName = cl.sections[secIdx].name || '';
+        if (item.done && App.vaultAvailable) {
+          const secName = cl.sections[secIdx].name || '';
+          const projectFile = cl.vaultFile || (cl.projectId
+            ? (() => { const proj = (d.strategy.projects||[]).find(p=>p.id===cl.projectId); return proj ? proj.name.replace(/[/\\?%*:|"<>]/g,'-')+'.md' : null; })()
+            : null);
+          if (projectFile) {
             logEntry = {
-              projectName: proj.name,
-              projectFile: proj.name.replace(/[/\\?%*:|"<>]/g, '-') + '.md',
+              projectName: cl.name,
+              projectFile,
               text: `✓ ${secName ? '[' + secName + '] ' : ''}${item.text}`
             };
           }
@@ -3789,9 +3804,16 @@ const App = {
   },
 
   deleteChecklist(clId) {
+    const cl = (Store.get().checklists || []).find(c => c.id === clId);
     if (!confirm('Delete this checklist?')) return;
     Store.update(d => { d.checklists = (d.checklists || []).filter(c => c.id !== clId); });
     toast('Checklist deleted');
+    if (cl?.vaultFile && this.vaultAvailable) {
+      if (confirm(`Also delete ${cl.vaultFile} from vault?`)) {
+        fetch('/api/vault/file', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: cl.vaultFile, force: true }) }).catch(() => {});
+      }
+    }
     this.render();
   },
 
@@ -3812,11 +3834,17 @@ const App = {
   addBlankProject(name) {
     name = (name || '').trim();
     if (!name) { toast('Enter a project name'); return; }
-    const cl = { id: uid(), name, icon: '📋', projectId: null, uploadedAt: Date.now(), sections: [] };
+    const safe = name.replace(/[/\\?%*:|"<>]/g, '-');
+    const vaultFile = `nexus_project/${safe}.md`;
+    const cl = { id: uid(), name, icon: '📋', projectId: null, uploadedAt: Date.now(), sections: [], vaultFile };
     Store.update(d => { if (!d.checklists) d.checklists = []; d.checklists.push(cl); });
     this.strategyProject = cl.id;
     this._projAddOpen = false;
     toast(`Project "${name}" created`);
+    if (this.vaultAvailable) {
+      fetch('/api/vault/create-project-file', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, vaultFile }) }).catch(() => {});
+    }
     this.render();
   },
 
