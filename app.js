@@ -419,9 +419,10 @@ const Views = {
   dashboard() {
     const data = Store.get();
     const openTasks = data.tasks.filter(t => !t.done).length;
-    const doneTasks = App.vaultStats ? App.vaultStats.completedTasks : data.tasks.filter(t => t.done).length;
+    const nexusDone = data.tasks.filter(t => t.done).length;
+    const doneTasks = (App.vaultStats ? App.vaultStats.completedTasks : 0) + nexusDone;
     const totalCaptures = data.captures.length;
-    const journalEntries = App.vaultStats ? App.vaultStats.totalDailyEntries : data.journal.length;
+    const journalEntries = (App.vaultStats ? App.vaultStats.totalDailyEntries : 0) + data.journal.length;
     const activeGoals = data.goals.length;
 
     // Compute real activity streak — same sources as Calendar view
@@ -1640,7 +1641,7 @@ const Views = {
 
           <!-- + Add button -->
           <div style="position:relative; display:inline-block;">
-            <button class="strat-month-pill" onclick="App._projAddOpen=!App._projAddOpen; App.render();" style="color:var(--accent); border-color:var(--accent); font-weight:700;">+ Add</button>
+            <button class="strat-month-pill" onclick="App._projAddOpen=!App._projAddOpen; App.render();" style="color:var(--accent); border-color:var(--accent)60;">+ Add</button>
             ${App._projAddOpen ? `
               <div style="position:absolute; top:36px; left:0; z-index:100; background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:10px; min-width:220px; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
                 <button class="btn btn-primary" style="width:100%; margin-bottom:8px;" onclick="App._projAddOpen=false; App.uploadChecklist()">⬆ Upload .md file</button>
@@ -3763,10 +3764,27 @@ const App = {
   },
 
   toggleStrategyMilestone(month, idx) {
+    let milestone = null;
     Store.update(d => {
       const ms = d.strategy.milestones[month];
-      if (ms && ms[idx]) ms[idx].done = !ms[idx].done;
+      if (ms && ms[idx]) {
+        ms[idx].done = !ms[idx].done;
+        milestone = { ...ms[idx] };
+      }
     });
+    // Log to nexus_project/Milestones.md when marking done
+    if (milestone && milestone.done && App.vaultAvailable) {
+      const label = milestone.stream ? `[${milestone.stream}] ` : '';
+      fetch('/api/vault/project-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectFile: 'nexus_project/Milestones.md',
+          text: `${label}${milestone.text} (${month})`,
+          projectName: 'Milestones'
+        })
+      }).catch(() => {});
+    }
     this.render();
   },
 

@@ -494,6 +494,22 @@ textarea { resize: vertical; min-height: 100px; }
 }
 .roadmap-mcell.active .roadmap-mcell-dot { background: rgba(255,255,255,0.8); }
 
+.strat-month-pill {
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+  white-space: nowrap;
+  user-select: none;
+}
+.strat-month-pill:hover  { background: var(--hover); color: var(--text); }
+.strat-month-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; }
+
 .strat-alloc-bar {
   display: flex;
   border-radius: 6px;
