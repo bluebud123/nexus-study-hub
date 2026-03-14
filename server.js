@@ -830,7 +830,7 @@ async function handleAPI(req, res, pathname, query) {
             }
           }
           // Skip title/header lines
-          while (insertIdx < lines.length && (lines[insertIdx].startsWith('#') && !lines[insertIdx].startsWith('####')) || lines[insertIdx].trim() === '') {
+          while (insertIdx < lines.length && ((lines[insertIdx].startsWith('#') && !lines[insertIdx].startsWith('####')) || lines[insertIdx].trim() === '')) {
             insertIdx++;
           }
           const newSection = `#### ${today}\n${bullet}\n`;
@@ -1268,6 +1268,9 @@ const nexusServer = http.createServer(async (req, res) => {
 
   // Static files
   let filePath = path.join(CONFIG.staticDir, pathname === '/' ? 'index.html' : pathname);
+  if (!path.resolve(filePath).startsWith(path.resolve(CONFIG.staticDir))) {
+    res.writeHead(403); res.end('Forbidden'); return;
+  }
   const ext = path.extname(filePath);
   const contentType = MIME[ext] || 'text/plain';
 

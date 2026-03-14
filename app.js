@@ -982,7 +982,7 @@ const Views = {
     captures.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
 
     return `
-      <h1 class="view-title">Capture</h1>
+      <h1 class="view-title">Capture <button class="btn btn-ghost btn-sm" onclick="App.exportCaptures()" style="font-size:11px; vertical-align:middle; margin-left:8px;">⬇ Export .md</button></h1>
       <p class="view-subtitle">Quick thoughts, ideas, anything — get it out of your head</p>
 
       <div style="margin-bottom:20px;">
@@ -1002,7 +1002,7 @@ const Views = {
         <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px;">
           <span class="tag-badge ${!activeTag ? 'tag-active' : ''}" onclick="App.captureTagFilter=''; App.render();">All</span>
           ${tagList.map(([tag, count]) => `
-            <span class="tag-badge ${activeTag === tag ? 'tag-active' : ''}" onclick="App.captureTagFilter='${tag}'; App.render();">${tag} (${count})</span>
+            <span class="tag-badge ${activeTag === tag ? 'tag-active' : ''}" onclick="App.captureTagFilter=${JSON.stringify(tag)}; App.render();">${tag} (${count})</span>
           `).join('')}
         </div>
       ` : ''}
@@ -1097,10 +1097,11 @@ const Views = {
       </div>
 
       ${taskSrc !== 'vault' ? `
-      <div class="filter-tabs">
+      <div class="filter-tabs" style="display:flex; align-items:center;">
         <span class="filter-tab ${filter==='all'?'active':''}" onclick="App.setTaskFilter('all')">All (${data.tasks.length})</span>
         <span class="filter-tab ${filter==='active'?'active':''}" onclick="App.setTaskFilter('active')">Active (${data.tasks.filter(t=>!t.done).length})</span>
         <span class="filter-tab ${filter==='done'?'active':''}" onclick="App.setTaskFilter('done')">Done (${data.tasks.filter(t=>t.done).length})</span>
+        ${filter === 'done' && data.tasks.filter(t=>t.done).length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.clearDoneTasks()" style="margin-left:auto; color:var(--red); font-size:11px;">Clear all done</button>` : ''}
       </div>
 
       ${tasks.length ? `
@@ -1184,7 +1185,7 @@ const Views = {
     const vaultDays = App.vaultDailyEntries || [];
 
     return `
-      <h1 class="view-title">Journal</h1>
+      <h1 class="view-title">Journal <button class="btn btn-ghost btn-sm" onclick="App.exportJournal()" style="font-size:11px; vertical-align:middle; margin-left:8px;">⬇ Export .md</button></h1>
       <p class="view-subtitle">Reflect, learn, grow — one entry at a time</p>
 
       <div style="margin-bottom:24px;">
@@ -2613,8 +2614,8 @@ const Views = {
       <div class="today-quick-add" style="margin-bottom:20px;">
         <input type="text" id="search-input" placeholder="Type to search... (min 2 chars)"
           value="${escapeHTML(App.searchQuery || '')}"
-          oninput="App.searchQuery=this.value; App.render();"
-          onkeydown="if(event.key==='Escape'){this.value=''; App.searchQuery=''; App.render();}">
+          oninput="clearTimeout(App._searchDebounce); App._searchDebounce=setTimeout(()=>{App.searchQuery=this.value; App.render();},150);"
+          onkeydown="if(event.key==='Escape'){clearTimeout(App._searchDebounce); this.value=''; App.searchQuery=''; App.render();}">
       </div>
 
       ${q.length >= 2 ? `
@@ -3531,6 +3532,7 @@ const App = {
     if (this.vaultAvailable) {
       VaultAPI.addCapture(`- [ ] ${text}${category ? ' #' + category : ''}`).catch(() => {});
     }
+    toast('Task added');
     this.render();
   },
 
@@ -3626,6 +3628,14 @@ const App = {
     this.render();
   },
 
+  clearDoneTasks() {
+    if (!confirm('Delete all completed tasks?')) return;
+    Store.update(d => d.tasks = d.tasks.filter(t => !t.done));
+    this.taskFilter = 'all';
+    toast('Cleared completed tasks');
+    this.render();
+  },
+
   setVaultTaskTab(tab) {
     this.vaultTaskTab = tab;
     this.render();
@@ -3679,6 +3689,7 @@ const App = {
     if (toggle && toggle.checked) {
       VaultAPI.addDaily(text).then(() => this.loadVaultDailyEntries()).catch(() => {});
     }
+    toast('Journal entry saved');
     this.render();
   },
 
@@ -3697,6 +3708,7 @@ const App = {
     const target = parseInt(targetInput.value) || 10;
     if (!text) return;
     Store.update(d => d.goals.push({ id: uid(), text, target, current: 0, created: Date.now() }));
+    toast('Goal added');
     this.render();
   },
 
@@ -4533,7 +4545,7 @@ const App = {
     if (this.timerState.interval) clearInterval(this.timerState.interval);
     const ts = this.timerState;
     // Accumulate time spent in this run
-    const ran = Math.floor((Date.now() - ts.startedAt) / 1000);
+    const ran = Math.max(0, Math.floor((Date.now() - ts.startedAt) / 1000));
     ts.accumulated = (ts.accumulated || 0) + ran;
     ts.running = false;
     ts.interval = null;
@@ -4552,7 +4564,7 @@ const App = {
   stopCountdownEarly() {
     if (this.timerState.interval) clearInterval(this.timerState.interval);
     const ts = this.timerState;
-    const elapsed = (ts.accumulated || 0) + (ts.startedAt ? Math.floor((Date.now() - ts.startedAt) / 1000) : 0);
+    const elapsed = (ts.accumulated || 0) + (ts.startedAt ? Math.max(0, Math.floor((Date.now() - ts.startedAt) / 1000)) : 0);
     this._earlyStopElapsed = elapsed;
     this._earlyStopType = ts.type || 'Study';
     this._earlyStopOriginalTotal = ts.total || 0;
@@ -5123,6 +5135,63 @@ const App = {
     if (this.currentView === 'today') this.render();
   },
 
+  // ─── Capture / Journal Export ────────────────
+  exportCaptures() {
+    const data = Store.get();
+    const byTag = {};
+    const noTag = [];
+    for (const c of data.captures) {
+      const tags = (c.text.match(/#\w+/g) || []);
+      const date = c.created ? new Date(c.created).toISOString().slice(0, 10) : '?';
+      if (tags.length) {
+        for (const t of tags) {
+          if (!byTag[t]) byTag[t] = [];
+          byTag[t].push({ date, text: c.text });
+        }
+      } else {
+        noTag.push({ date, text: c.text });
+      }
+    }
+    const lines = [`# Captures Export — ${todayKey()}`, ''];
+    for (const [tag, entries] of Object.entries(byTag).sort()) {
+      lines.push(`## ${tag}`, '');
+      for (const e of entries) lines.push(`- ${e.date}: ${e.text}`);
+      lines.push('');
+    }
+    if (noTag.length) {
+      lines.push('## (untagged)', '');
+      for (const e of noTag) lines.push(`- ${e.date}: ${e.text}`);
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `captures-${todayKey()}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('Captures exported');
+  },
+
+  exportJournal() {
+    const data = Store.get();
+    const entries = [...data.journal].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const lines = [`# Journal Export — ${todayKey()}`, ''];
+    let lastDate = '';
+    for (const e of entries) {
+      if (e.date !== lastDate) {
+        lines.push(`## ${e.date || 'Unknown date'}`, '');
+        lastDate = e.date;
+      }
+      lines.push(`- ${e.text}`, '');
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `journal-${todayKey()}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('Journal exported');
+  },
+
   // ─── Capture with Vault Bridge ──────────────
   addCapture() {
     const input = document.getElementById('capture-input');
@@ -5134,6 +5203,7 @@ const App = {
     if (toggle && toggle.checked) {
       VaultAPI.addCapture(text).catch(() => {});
     }
+    toast('Captured');
     this.render();
   },
 };
