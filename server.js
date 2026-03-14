@@ -7,7 +7,7 @@ const path = require('path');
 const url = require('url');
 
 const CONFIG = {
-  port: 3456,
+  port: process.env.PORT ? parseInt(process.env.PORT) : 3456,
   vaultPath: '',
   useVault: false,
   staticDir: __dirname,

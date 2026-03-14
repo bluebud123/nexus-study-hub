@@ -1707,6 +1707,8 @@ const Views = {
                     <option value="">No deadline</option>
                     ${stratProjects.map(p => `<option value="${p.id}" ${activeCL.projectId === p.id ? 'selected' : ''}>${escapeHTML(p.icon||'')} ${escapeHTML(p.name)}</option>`).join('')}
                   </select>
+                  ${App.vaultAvailable && !activeCL.vaultFile ? `<button class="btn btn-ghost btn-sm" style="color:var(--accent); font-size:11px;" onclick="App.createProjectVaultFile('${activeCL.id}')" title="Create vault MD file for this project">📁 Link vault</button>` : ''}
+                  ${activeCL.vaultFile ? `<span style="font-size:10px; color:var(--green); opacity:0.7;" title="${escapeHTML(activeCL.vaultFile)}">📁 linked</span>` : ''}
                   <button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="App.deleteChecklist('${activeCL.id}')">🗑</button>
                 </div>
               </div>
@@ -3846,6 +3848,21 @@ const App = {
         body: JSON.stringify({ name, vaultFile }) }).catch(() => {});
     }
     this.render();
+  },
+
+  createProjectVaultFile(clId) {
+    const cl = (Store.get().checklists || []).find(c => c.id === clId);
+    if (!cl) return;
+    const safe = cl.name.replace(/[/\\?%*:|"<>]/g, '-');
+    const vaultFile = `nexus_project/${safe}.md`;
+    fetch('/api/vault/create-project-file', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: cl.name, vaultFile }) })
+      .then(r => r.json())
+      .then(() => {
+        Store.update(d => { const c = (d.checklists||[]).find(x=>x.id===clId); if(c) c.vaultFile = vaultFile; });
+        toast(`Vault file created: ${vaultFile}`);
+        this.render();
+      }).catch(() => toast('Failed to create vault file'));
   },
 
   deleteChecklistSection(clId, secIdx) {
