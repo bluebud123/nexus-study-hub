@@ -3629,7 +3629,8 @@ const App = {
   },
 
   clearDoneTasks() {
-    if (!confirm('Delete all completed tasks?')) return;
+    if (!confirm('Delete all completed tasks? This cannot be undone.')) return;
+    if (!confirm('Are you sure? All done tasks will be permanently deleted.')) return;
     Store.update(d => d.tasks = d.tasks.filter(t => !t.done));
     this.taskFilter = 'all';
     toast('Cleared completed tasks');
