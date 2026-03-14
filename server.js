@@ -29,7 +29,7 @@ try {
 } catch {}
 
 function saveConfig() {
-  const toSave = { vaultPath: CONFIG.vaultPath, useVault: CONFIG.useVault, setupComplete: true };
+  const toSave = { vaultPath: CONFIG.vaultPath, useVault: CONFIG.useVault, setupComplete: true, rapidLogFile: CONFIG.rapidLogFile };
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(toSave, null, 2), 'utf8');
 }
 
@@ -440,6 +440,21 @@ async function computeGrowth() {
         if (/#lesson/i.test(line)) {
           lessons.push({ date: entry.date, text: line.replace(/^[\s\-*]+/, '').replace(/#\w+/g, '').trim() });
         }
+      }
+    }
+  } catch {}
+
+  // Also include app captures in tag trends
+  try {
+    const storeRaw = await fs.promises.readFile(path.join(__dirname, 'nexus-data.json'), 'utf8');
+    const store = JSON.parse(storeRaw);
+    for (const cap of (store.captures || [])) {
+      if (!cap.text || !cap.created) continue;
+      const month = new Date(cap.created).toISOString().slice(0, 7);
+      const tags = extractTags(cap.text);
+      for (const [t, c] of Object.entries(tags)) {
+        if (!tagTrends[t]) tagTrends[t] = {};
+        tagTrends[t][month] = (tagTrends[t][month] || 0) + c;
       }
     }
   } catch {}
@@ -932,7 +947,7 @@ async function handleAPI(req, res, pathname, query) {
             if (line.toLowerCase().includes('#' + tag)) {
               entries.push({
                 date: entry.date,
-                text: line.replace(/^[\s\-*]+/, '').trim(),
+                text: line.replace(/^[\s\-*>|]+/, '').trim(),
                 source: CONFIG.rapidLogFile,
               });
             }
@@ -958,7 +973,7 @@ async function handleAPI(req, res, pathname, query) {
                   for (const entry of dailyEntries) {
                     for (const line of entry.lines) {
                       if (line.toLowerCase().includes('#' + tag)) {
-                        entries.push({ date: entry.date, text: line.replace(/^[\s\-*]+/, '').trim(), source: relPath });
+                        entries.push({ date: entry.date, text: line.replace(/^[\s\-*>|]+/, '').trim(), source: relPath });
                       }
                     }
                   }
@@ -967,7 +982,7 @@ async function handleAPI(req, res, pathname, query) {
                   const fileDate = stat.mtime.toISOString().slice(0, 10);
                   for (const line of content.split('\n')) {
                     if (line.toLowerCase().includes('#' + tag)) {
-                      entries.push({ date: fileDate, text: line.replace(/^[\s\-*#]+/, '').trim(), source: relPath });
+                      entries.push({ date: fileDate, text: line.replace(/^[\s\-*>#|]+/, '').trim(), source: relPath });
                     }
                   }
                 }
@@ -976,7 +991,19 @@ async function handleAPI(req, res, pathname, query) {
           }
         } catch {}
       }
-      await walkForTag(CONFIG.vaultPath, '');
+      if (CONFIG.vaultPath) await walkForTag(CONFIG.vaultPath, '');
+
+      // Also search app captures (nexus-data.json)
+      try {
+        const storeRaw = await fs.promises.readFile(path.join(__dirname, 'nexus-data.json'), 'utf8');
+        const store = JSON.parse(storeRaw);
+        for (const cap of (store.captures || [])) {
+          if (cap.text && cap.text.toLowerCase().includes('#' + tag)) {
+            const d = cap.created ? new Date(cap.created).toISOString().slice(0, 10) : '0000-00-00';
+            entries.push({ date: d, text: cap.text.trim(), source: 'app' });
+          }
+        }
+      } catch {}
 
       // Sort by date descending, cap at 200
       entries.sort((a, b) => b.date.localeCompare(a.date));
@@ -1130,13 +1157,14 @@ async function handleAPI(req, res, pathname, query) {
     if (pathname === '/api/config' && method === 'GET') {
       let setupComplete = false;
       try { const s = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); setupComplete = !!s.setupComplete; } catch {}
-      return jsonRes(res, { vaultPath: CONFIG.vaultPath, useVault: CONFIG.useVault, setupComplete });
+      return jsonRes(res, { vaultPath: CONFIG.vaultPath, useVault: CONFIG.useVault, setupComplete, rapidLogFile: CONFIG.rapidLogFile });
     }
 
     if (pathname === '/api/config' && method === 'POST') {
       const body = await parseBody(req);
       if (body.vaultPath !== undefined) CONFIG.vaultPath = body.vaultPath;
       if (body.useVault !== undefined) CONFIG.useVault = !!body.useVault;
+      if (body.rapidLogFile !== undefined && body.rapidLogFile.trim()) CONFIG.rapidLogFile = body.rapidLogFile.trim();
       saveConfig();
       return jsonRes(res, { success: true });
     }

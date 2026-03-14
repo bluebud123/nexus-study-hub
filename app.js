@@ -33,6 +33,7 @@ const Store = {
       mcqScores: [],
       topics: [],
       theme: 'dark',
+      taskSource: 'both',
       autoWeeklyExport: true,
       lastWeeklyExport: null,
       weeklyReviewTags: ['lesson', 'people', 'food'],
@@ -56,6 +57,18 @@ const Store = {
         { id: 'proj-exam', name: "Master's Exam", deadline: merged.strategy.examDate || '2026-11-01', color: '#E8453C', icon: '📖' }
       ];
     }
+    // Migrate old short month keys (feb, mar…) to YYYY-MM format
+    const _mMap = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+    for (const field of ['milestones', 'allocations', 'notes']) {
+      if (merged.strategy[field] && typeof merged.strategy[field] === 'object') {
+        const migrated = {};
+        for (const [k, v] of Object.entries(merged.strategy[field])) {
+          migrated[_mMap[k] ? '2026-' + _mMap[k] : k] = v;
+        }
+        merged.strategy[field] = migrated;
+      }
+    }
+    if (!merged.taskSource) merged.taskSource = 'both';
     return merged;
   },
 
@@ -174,14 +187,41 @@ function toast(msg) {
   setTimeout(() => el.remove(), 2200);
 }
 
-// ── Strategy Constants ─────────────────────────────
-const STRATEGY_MONTHS = [
-  { key: 'feb', label: 'Feb' }, { key: 'mar', label: 'Mar' },
-  { key: 'apr', label: 'Apr' }, { key: 'may', label: 'May' },
-  { key: 'jun', label: 'Jun' }, { key: 'jul', label: 'Jul' },
-  { key: 'aug', label: 'Aug' }, { key: 'sep', label: 'Sep' },
-  { key: 'oct', label: 'Oct' }, { key: 'nov', label: 'Nov' },
-];
+// ── Dynamic Roadmap Month Helpers ─────────────────
+function addMonths(yyyymm, n) {
+  const [y, m] = yyyymm.split('-').map(Number);
+  let nm = (m - 1 + n) % 12;
+  const ny = y + Math.floor((m - 1 + n) / 12);
+  if (nm < 0) { nm += 12; }
+  return ny + '-' + String(nm + 1).padStart(2, '0');
+}
+
+function curMonthKey() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+function monthLabel(key) {
+  if (!key || !key.includes('-')) return key;
+  const [y, m] = key.split('-').map(Number);
+  const shortName = new Date(y, m - 1, 1).toLocaleString('en', { month: 'short' });
+  const curYear = new Date().getFullYear();
+  return shortName + (y !== curYear ? " '" + String(y).slice(2) : '');
+}
+
+function getRoadmapMonths(strategy) {
+  const cur = curMonthKey();
+  const start = strategy.roadmapStart || addMonths(cur, -2);
+  const end   = strategy.roadmapEnd   || addMonths(cur, 6);
+  const months = [];
+  let k = start;
+  let guard = 0;
+  while (k <= end && guard++ < 48) {
+    months.push({ key: k, label: monthLabel(k) });
+    k = addMonths(k, 1);
+  }
+  return months;
+}
 
 const STREAMS = {
   exam:       { name: "Master's Exam",  icon: "\u{1F4D6}", color: '#E8453C' },
@@ -189,65 +229,9 @@ const STREAMS = {
   scoliox:    { name: 'Scoliox Dev',    icon: "\u{1F916}", color: '#10AC84' },
 };
 
-const DEFAULT_ALLOC = {
-  feb: { exam: 55, manuscript: 30, scoliox: 15 },
-  mar: { exam: 55, manuscript: 25, scoliox: 20 },
-  apr: { exam: 60, manuscript: 15, scoliox: 25 },
-  may: { exam: 65, manuscript: 10, scoliox: 25 },
-  jun: { exam: 70, manuscript: 5,  scoliox: 25 },
-  jul: { exam: 85, manuscript: 5,  scoliox: 10 },
-  aug: { exam: 90, manuscript: 5,  scoliox: 5 },
-  sep: { exam: 95, manuscript: 0,  scoliox: 5 },
-  oct: { exam: 100, manuscript: 0, scoliox: 0 },
-  nov: { exam: 100, manuscript: 0, scoliox: 0 },
-};
+const DEFAULT_ALLOC = {};
 
-const DEFAULT_MILESTONES = {
-  feb: [
-    { id: 'f1', stream: 'manuscript', text: 'Submit point-by-point reviewer response + revised manuscript to CSS', priority: 'critical', done: false },
-    { id: 'f2', stream: 'exam', text: 'Complete Upper Limb + Spine modules (300 MCQs)', priority: 'high', done: false },
-    { id: 'f3', stream: 'scoliox', text: 'Complete dual X-ray upload (UIV) deployment', priority: 'medium', done: false },
-  ],
-  mar: [
-    { id: 'm1', stream: 'exam', text: 'Lower Limb Part 1: Hip, Pelvis, Knee (400 MCQs)', priority: 'high', done: false },
-    { id: 'm2', stream: 'manuscript', text: 'Address any second-round reviewer comments', priority: 'medium', done: false },
-    { id: 'm3', stream: 'scoliox', text: 'UIV paper draft ready for co-authors', priority: 'medium', done: false },
-  ],
-  apr: [
-    { id: 'a1', stream: 'exam', text: 'Lower Limb Part 2 + Trauma principles (400 MCQs)', priority: 'high', done: false },
-    { id: 'a2', stream: 'exam', text: 'First mock exam attempt \u2014 target >65%', priority: 'high', done: false },
-    { id: 'a3', stream: 'scoliox', text: 'Submit UIV paper to target journal', priority: 'medium', done: false },
-  ],
-  may: [
-    { id: 'y1', stream: 'exam', text: 'Paediatrics, Tumors, Infections, Sports (500 MCQs)', priority: 'high', done: false },
-    { id: 'y2', stream: 'manuscript', text: 'CSS-25-705 expected acceptance / proofs', priority: 'low', done: false },
-    { id: 'y3', stream: 'scoliox', text: 'Multi-centre validation data collection begins', priority: 'low', done: false },
-  ],
-  jun: [
-    { id: 'j1', stream: 'exam', text: 'Arthroplasty deep dive + Revision surgery (500 MCQs)', priority: 'critical', done: false },
-    { id: 'j2', stream: 'scoliox', text: 'Feature freeze \u2014 maintenance only after this', priority: 'critical', done: false },
-    { id: 'j3', stream: 'exam', text: 'Second mock exam \u2014 target >75%', priority: 'high', done: false },
-  ],
-  jul: [
-    { id: 'l1', stream: 'exam', text: 'Question-intensive month: 800 MCQs + weak area review', priority: 'critical', done: false },
-    { id: 'l2', stream: 'exam', text: 'Begin weekly viva practice sessions', priority: 'high', done: false },
-  ],
-  aug: [
-    { id: 'g1', stream: 'exam', text: '1000 MCQs + Mock exams every 2 weeks \u2014 target >80%', priority: 'critical', done: false },
-    { id: 'g2', stream: 'exam', text: 'Daily viva practice with study group', priority: 'critical', done: false },
-  ],
-  sep: [
-    { id: 's1', stream: 'exam', text: '1000 MCQs + Clinical scenario marathon', priority: 'critical', done: false },
-    { id: 's2', stream: 'exam', text: 'Full-day mock exam under timed conditions', priority: 'critical', done: false },
-  ],
-  oct: [
-    { id: 'o1', stream: 'exam', text: 'Final rapid revision \u2014 consolidation only', priority: 'critical', done: false },
-    { id: 'o2', stream: 'exam', text: 'Confidence building: review strengths, light practice', priority: 'high', done: false },
-  ],
-  nov: [
-    { id: 'n1', stream: 'exam', text: 'EXAM MONTH \u2014 execute with confidence', priority: 'critical', done: false },
-  ],
-};
+const DEFAULT_MILESTONES = {};
 
 const DECISION_RULES = [
   { trigger: 'Manuscript deadline approaching', action: 'Prioritize manuscript until submitted', icon: '\u26A1' },
@@ -467,8 +451,9 @@ const Views = {
     const recentTasks = data.tasks.filter(t => !t.done).slice(-5).reverse();
 
     // Vault open tasks — #active only
+    const taskSource = data.taskSource || 'both';
     const vaultOpenTasks = [];
-    if (App.vaultTasks) {
+    if (taskSource !== 'nexus' && App.vaultTasks) {
       vaultOpenTasks.push(...(App.vaultTasks.active || []).slice(0, 5));
     }
     const vaultPending = App.vaultTasks ? App.vaultTasks.summary.pending : 0;
@@ -531,10 +516,14 @@ const Views = {
           <div class="stat-card"><div class="stat-number">${activeGoals}</div><div class="stat-label">Goals</div></div>
         </div>`,
 
-      'open-tasks': () => `
+      'open-tasks': () => {
+        const showVault = taskSource !== 'nexus' && vaultOpenTasks.length > 0;
+        const showNexus = taskSource !== 'vault' && recentTasks.length > 0;
+        if (!showVault && !showNexus) return `<h3 style="margin-bottom:12px; font-size:16px; color:var(--text-dim);">Open Tasks</h3><div class="empty-state" style="padding:20px;"><div class="empty-text">No open tasks.</div></div>`;
+        return `
         <h3 style="margin-bottom:12px; font-size:16px; color:var(--text-dim);">Open Tasks</h3>
-        ${vaultOpenTasks.length ? `
-          <div class="item-list" style="margin-bottom:28px;">
+        ${showVault ? `
+          <div class="item-list" style="margin-bottom:${showNexus ? 12 : 0}px;">
             ${vaultOpenTasks.map(t => {
               const safeSource = t.source ? t.source.replace(/'/g, "\\'") : '';
               return `<div class="item">
@@ -546,7 +535,17 @@ const Views = {
               </div>`;
             }).join('')}
           </div>
-        ` : '<div class="empty-state" style="padding:20px;"><div class="empty-text">No open tasks.</div></div>'}`,
+        ` : ''}
+        ${showNexus ? `
+          <div class="item-list">
+            ${recentTasks.map(t => `<div class="item">
+              <div class="item-check" onclick="App.toggleTask('${t.id}')"></div>
+              <div class="item-body"><div class="item-title">${escapeHTML(t.text)}</div>
+              <div class="item-meta"><span class="vtask-source">nexus</span></div></div>
+            </div>`).join('')}
+          </div>
+        ` : ''}`;
+      },
 
       'recent-captures': () => `
         <h3 style="margin-bottom:12px; font-size:16px; color:var(--text-dim);">Recent Captures</h3>
@@ -667,9 +666,8 @@ const Views = {
 
     // Strategy: current month allocation
     const now = new Date();
-    const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-    const curMonthKey = monthKeys[now.getMonth()];
-    const curAlloc = data.strategy.allocations[curMonthKey] || DEFAULT_ALLOC[curMonthKey] || {};
+    const _cmk = curMonthKey();
+    const curAlloc = data.strategy.allocations[_cmk] || {};
     const examDate = new Date(data.strategy.examDate || '2026-11-01');
     const daysLeft = Math.max(0, Math.ceil((examDate - now) / 864e5));
 
@@ -1074,6 +1072,7 @@ const Views = {
       else if (vtab === 'archived') vaultTaskList = vt.archived || [];
     }
 
+    const taskSrc = data.taskSource || 'both';
     return `
       <h1 class="view-title">Tasks</h1>
       <p class="view-subtitle">Track what needs to get done</p>
@@ -1090,6 +1089,7 @@ const Views = {
         <button class="btn btn-primary" onclick="App.addTask()">Add</button>
       </div>
 
+      ${taskSrc !== 'vault' ? `
       <div class="filter-tabs">
         <span class="filter-tab ${filter==='all'?'active':''}" onclick="App.setTaskFilter('all')">All (${data.tasks.length})</span>
         <span class="filter-tab ${filter==='active'?'active':''}" onclick="App.setTaskFilter('active')">Active (${data.tasks.filter(t=>!t.done).length})</span>
@@ -1139,8 +1139,9 @@ const Views = {
           <div class="empty-text">${filter === 'done' ? 'No completed tasks yet.' : 'All clear! Add a task above.'}</div>
         </div>
       `}
+      ` : ''}
 
-      ${vt ? `
+      ${taskSrc !== 'nexus' && vt ? `
         <div class="vtask-section">
           <div class="vtask-header">
             <h3 class="vtask-title">Vault Tasks</h3>
@@ -1165,7 +1166,7 @@ const Views = {
             </div>
           `}
         </div>
-      ` : ''}
+      ` : taskSrc !== 'nexus' ? `<div class="empty-state" style="padding:20px;"><div class="empty-text">No vault tasks. Connect your vault in Strategy &gt; Settings.</div></div>` : ''}
     `;
   },
 
@@ -1282,11 +1283,10 @@ const Views = {
   strategy() {
     const data = Store.get();
     const s = data.strategy;
-    const _curMonthKey = new Date().toLocaleString('en', { month: 'short' }).toLowerCase();
-    const month = App.strategyMonth || (STRATEGY_MONTHS.find(m => m.key === _curMonthKey) ? _curMonthKey : STRATEGY_MONTHS[0].key);
+    const roadmapMonths = getRoadmapMonths(s);
+    const month = App.strategyMonth || curMonthKey();
     const tab = App.strategyTab || 'roadmap';
-    const mIdx = STRATEGY_MONTHS.findIndex(m => m.key === month);
-    const mLabel = STRATEGY_MONTHS[mIdx]?.label || month;
+    const mLabel = monthLabel(month);
 
     const allMs = Object.values(s.milestones).flat();
     const totalMs = allMs.length;
@@ -1296,17 +1296,20 @@ const Views = {
     const examDate = new Date(s.examDate || '2026-11-01');
     const daysLeft = Math.max(0, Math.ceil((examDate - new Date()) / 864e5));
 
-    const phase = mIdx <= 3 ? 'Foundation + Manuscript' : mIdx <= 5 ? 'Deep Study + Feature Freeze' : mIdx <= 7 ? 'Exam Intensive' : 'Final Sprint';
+    const roadmapIdx = roadmapMonths.findIndex(m => m.key === month);
+    const phase = roadmapIdx <= 3 ? 'Foundation' : roadmapIdx <= 5 ? 'Deep Study' : roadmapIdx <= 7 ? 'Intensive' : 'Final Sprint';
 
-    const curAlloc = s.allocations[month] || DEFAULT_ALLOC[month];
+    const curAlloc = s.allocations[month] || {};
     const curMs = s.milestones[month] || [];
     const monthDone = curMs.filter(m => m.done).length;
+    const allocProjects = s.projects || [];
 
     function allocBar(alloc) {
-      return Object.entries(STREAMS).map(([k, st]) => {
-        const val = alloc[k] || 0;
+      if (!allocProjects.length) return '<div style="font-size:11px;color:var(--text-dim);line-height:20px;padding-left:4px;">Add projects in Settings to track allocation</div>';
+      return allocProjects.map(proj => {
+        const val = alloc[proj.id] || 0;
         if (val === 0) return '';
-        return `<div class="strat-alloc-seg" style="width:${val}%; background:${st.color};">${val >= 12 ? val + '%' : ''}</div>`;
+        return `<div class="strat-alloc-seg" style="width:${val}%; background:${proj.color || 'var(--accent)'};">${val >= 12 ? val + '%' : ''}</div>`;
       }).join('');
     }
 
@@ -1323,18 +1326,22 @@ const Views = {
       tabContent = `
         <!-- Month Pills -->
         <div class="strat-months">
-          ${STRATEGY_MONTHS.map(m => {
+          <button class="strat-month-pill" onclick="App.extendRoadmap('back')" title="Add earlier month" style="font-size:14px; min-width:32px;">&#9664;</button>
+          ${roadmapMonths.map(m => {
             const mMs = s.milestones[m.key] || [];
             const mD = mMs.filter(x => x.done).length;
             const allD = mMs.length > 0 && mD === mMs.length;
             const remaining = mMs.length - mD;
+            const isCur = m.key === curMonthKey();
             return `<button class="strat-month-pill ${month === m.key ? 'active' : ''} ${allD ? 'all-done' : ''}"
-              onclick="App.setStrategyMonth('${m.key}')">
+              onclick="App.setStrategyMonth('${m.key}')"
+              style="${isCur && month !== m.key ? 'border-style:dashed;' : ''}">
               ${m.label}
               ${mMs.length > 0 && !allD ? `<span class="strat-month-badge">${remaining}</span>` : ''}
               ${allD && mMs.length > 0 ? '<span class="strat-month-check">&#10003;</span>' : ''}
             </button>`;
           }).join('')}
+          <button class="strat-month-pill" onclick="App.extendRoadmap('forward')" title="Add later month" style="font-size:14px; min-width:32px;">&#9654;</button>
         </div>
 
         <!-- Allocation Card -->
@@ -1343,24 +1350,25 @@ const Views = {
             const total = Object.values(curAlloc).reduce((a,b) => a + (b||0), 0);
             return `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-              <div class="strat-section-label" style="margin-bottom:0;">Time Allocation — ${mLabel} 2026</div>
+              <div class="strat-section-label" style="margin-bottom:0;">Time Allocation — ${mLabel}</div>
               <span style="font-size:12px; font-weight:700; color:${total===100?'var(--green)':'var(--accent)'};">${total}%</span>
             </div>
             <div class="strat-alloc-bar" style="margin-bottom:14px;">${allocBar(curAlloc)}</div>
-            ${Object.entries(STREAMS).map(([k, st]) => `
+            ${allocProjects.length === 0 ? `<div style="font-size:12px;color:var(--text-dim);">Add projects in Settings to set allocation per project.</div>` :
+            allocProjects.map(proj => `
               <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
                 <span style="font-size:12px; min-width:120px; display:flex; align-items:center; gap:6px; color:var(--text-dim); flex-shrink:0;">
-                  <span style="width:8px; height:8px; border-radius:50%; background:${st.color}; display:inline-block; flex-shrink:0;"></span>
-                  ${st.icon} ${st.name}
+                  <span style="width:8px; height:8px; border-radius:50%; background:${proj.color||'var(--accent)'}; display:inline-block; flex-shrink:0;"></span>
+                  ${escapeHTML(proj.icon||'📌')} ${escapeHTML(proj.name)}
                 </span>
-                <input type="range" min="0" max="100" value="${curAlloc[k]||0}"
-                  oninput="App.liveAllocVal('${month}','${k}',+this.value)"
-                  onchange="App.saveStratAlloc('${month}','${k}',+this.value)"
-                  style="flex:1; accent-color:${st.color}; cursor:pointer; height:4px;">
-                <span id="alloc-val-${month}-${k}" style="font-size:13px; font-weight:700; min-width:36px; text-align:right; color:${st.color};">${curAlloc[k]||0}%</span>
+                <input type="range" min="0" max="100" value="${curAlloc[proj.id]||0}"
+                  oninput="App.liveAllocVal('${month}','${proj.id}',+this.value)"
+                  onchange="App.saveStratAlloc('${month}','${proj.id}',+this.value)"
+                  style="flex:1; accent-color:${proj.color||'var(--accent)'}; cursor:pointer; height:4px;">
+                <span id="alloc-val-${month}-${proj.id}" style="font-size:13px; font-weight:700; min-width:36px; text-align:right; color:${proj.color||'var(--accent)'};">${curAlloc[proj.id]||0}%</span>
               </div>
             `).join('')}
-            ${total !== 100 ? `<div style="font-size:11px; color:var(--accent); margin-top:2px; text-align:right;">⚠ Total should equal 100%</div>` : ''}
+            ${allocProjects.length > 0 && total !== 100 ? `<div style="font-size:11px; color:var(--accent); margin-top:2px; text-align:right;">⚠ Total should equal 100%</div>` : ''}
             `;
           })()}
         </div>
@@ -1376,7 +1384,7 @@ const Views = {
             <input type="text" id="strat-ms-text" placeholder="What needs to happen?">
             <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
               <input type="text" id="strat-ms-stream" list="strat-ms-stream-list"
-                placeholder="Project / stream (optional)"
+                placeholder="Type any project name (or pick one)"
                 style="flex:2; min-width:140px;">
               <datalist id="strat-ms-stream-list">
                 ${(() => {
@@ -1452,10 +1460,10 @@ const Views = {
         <!-- Full Timeline -->
         <div class="card">
           <div class="strat-section-label">Full Timeline</div>
-          ${STRATEGY_MONTHS.map(m => `
+          ${roadmapMonths.map(m => `
             <div class="strat-timeline-row" onclick="App.setStrategyMonth('${m.key}')" style="cursor:pointer;">
-              <span class="strat-timeline-label ${month === m.key ? 'active' : ''}">${m.label}</span>
-              <div class="strat-alloc-bar" style="flex:1; height:20px;">${allocBar(s.allocations[m.key] || DEFAULT_ALLOC[m.key])}</div>
+              <span class="strat-timeline-label ${month === m.key ? 'active' : ''} ${m.key === curMonthKey() ? 'strat-timeline-cur' : ''}">${m.label}</span>
+              <div class="strat-alloc-bar" style="flex:1; height:20px;">${allocBar(s.allocations[m.key] || {})}</div>
             </div>
           `).join('')}
         </div>
@@ -1538,6 +1546,38 @@ const Views = {
               <span class="strat-activity">${escapeHTML(slot.activity)}</span>
             </div>`;
           }).join('')}
+        </div>
+
+        <!-- Task Source -->
+        <div class="card">
+          <div class="strat-section-label">Task Source</div>
+          <div style="margin-bottom:8px;">
+            <select class="strat-settings-input" style="width:100%;" onchange="App.setTaskSource(this.value)">
+              <option value="both" ${(data.taskSource||'both')==='both'?'selected':''}>Both (Nexus tasks + Vault tasks)</option>
+              <option value="nexus" ${data.taskSource==='nexus'?'selected':''}>Nexus tasks only (no vault needed)</option>
+              <option value="vault" ${data.taskSource==='vault'?'selected':''}>Vault tasks only</option>
+            </select>
+          </div>
+          <div style="font-size:11px; color:var(--text-dim);">Use "Nexus only" if you don't have an Obsidian vault.</div>
+        </div>
+
+        <!-- Vault Connection -->
+        <div class="card">
+          <div class="strat-section-label">Vault Connection</div>
+          <div style="font-size:13px; color:var(--text-dim); margin-bottom:8px;">
+            ${App.vaultAvailable ? `<span style="color:var(--green);">&#10003; Connected</span> — ${escapeHTML((App.serverConfig || {}).vaultPath || '')}`
+              : 'Not connected. Connect your Obsidian vault to enable journaling sync and task sync.'}
+          </div>
+          <div style="display:flex; gap:8px; margin-bottom:8px;">
+            <input type="text" id="settings-vault-path" class="strat-settings-input" placeholder="Vault folder path (e.g. D:/Obsidian/My Vault)" style="flex:1;" value="${escapeHTML((App.serverConfig || {}).vaultPath || '')}">
+            <button class="btn btn-primary btn-sm" onclick="App.updateVaultPath()">Save</button>
+          </div>
+          <div style="font-size:12px; color:var(--text-dim); margin-bottom:4px;">Daily journal / rapid log filename:</div>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="settings-rapid-log" class="strat-settings-input" placeholder="e.g. Daily Notes.md" style="flex:1;" value="${escapeHTML((App.serverConfig || {}).rapidLogFile || '02 Rapid logging.md')}">
+            <button class="btn btn-primary btn-sm" onclick="App.saveRapidLogFile()">Save</button>
+          </div>
+          <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">The markdown file used for daily journaling. Each user may have a different filename.</div>
         </div>
       `;
     } else if (tab === 'projects') {
@@ -2043,7 +2083,10 @@ const Views = {
     }).join('');
 
     return `
-      <h1 class="view-title">Growth</h1>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+        <h1 class="view-title" style="margin-bottom:0;">Growth</h1>
+        <button class="btn btn-ghost btn-sm" onclick="App.refreshGrowth()" title="Reload growth data from vault">&#8635; Refresh</button>
+      </div>
       <p class="view-subtitle">Your evolution over time</p>
 
       <!-- Streak Stats -->
@@ -2828,15 +2871,33 @@ const Views = {
       </div>
 
       <div class="card">
+        <div class="strat-section-label">Task Source</div>
+        <div style="margin-bottom:8px;">
+          <select class="strat-settings-input" style="width:100%;" onchange="App.setTaskSource(this.value)">
+            <option value="both" ${(data.taskSource||'both')==='both'?'selected':''}>Both (Nexus tasks + Vault tasks)</option>
+            <option value="nexus" ${data.taskSource==='nexus'?'selected':''}>Nexus tasks only (no vault needed)</option>
+            <option value="vault" ${data.taskSource==='vault'?'selected':''}>Vault tasks only</option>
+          </select>
+        </div>
+        <div style="font-size:11px; color:var(--text-dim);">Use "Nexus only" if you don't have an Obsidian vault. Tasks added in the app will still appear.</div>
+      </div>
+
+      <div class="card">
         <div class="strat-section-label">Vault Connection</div>
         <div style="font-size:13px; color:var(--text-dim); margin-bottom:8px;">
           ${App.vaultAvailable ? `<span style="color:var(--green);">&#10003; Connected</span> — ${escapeHTML((App.serverConfig || {}).vaultPath || '')}`
             : 'Not connected. Connect your Obsidian vault to enable journaling sync, task sync, and weekly reviews.'}
         </div>
-        <div style="display:flex; gap:8px;">
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
           <input type="text" id="settings-vault-path" class="strat-settings-input" placeholder="Vault folder path (e.g. D:/Obsidian/My Vault)" style="flex:1;" value="${escapeHTML((App.serverConfig || {}).vaultPath || '')}">
           <button class="btn btn-primary btn-sm" onclick="App.updateVaultPath()">Save</button>
         </div>
+        <div style="font-size:12px; color:var(--text-dim); margin-bottom:4px;">Daily journal / rapid log filename:</div>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="settings-rapid-log" class="strat-settings-input" placeholder="e.g. Daily Notes.md or 02 Rapid logging.md" style="flex:1;" value="${escapeHTML((App.serverConfig || {}).rapidLogFile || '02 Rapid logging.md')}">
+          <button class="btn btn-primary btn-sm" onclick="App.saveRapidLogFile()">Save</button>
+        </div>
+        <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">The markdown file in your vault used for daily journaling. Each user may have a different filename.</div>
       </div>
     `;
   }
@@ -2846,7 +2907,7 @@ const Views = {
 const App = {
   currentView: 'dashboard',
   taskFilter: 'all',
-  strategyMonth: 'feb',
+  strategyMonth: curMonthKey(),
   strategyTab: 'roadmap',
   strategyProject: null,
   _projAddOpen: false,
@@ -3498,6 +3559,18 @@ const App = {
     this.render();
   },
 
+  extendRoadmap(dir) {
+    const cur = curMonthKey();
+    Store.update(d => {
+      const s = d.strategy;
+      if (!s.roadmapStart) s.roadmapStart = addMonths(cur, -2);
+      if (!s.roadmapEnd)   s.roadmapEnd   = addMonths(cur, 6);
+      if (dir === 'back') s.roadmapStart = addMonths(s.roadmapStart, -1);
+      else                s.roadmapEnd   = addMonths(s.roadmapEnd, 1);
+    });
+    this.render();
+  },
+
   setStrategyTab(t) {
     this.strategyTab = t;
     this.render();
@@ -3516,7 +3589,7 @@ const App = {
   saveStratAlloc(month, key, val) {
     Store.update(d => {
       if (!d.strategy.allocations) d.strategy.allocations = {};
-      if (!d.strategy.allocations[month]) d.strategy.allocations[month] = Object.assign({}, DEFAULT_ALLOC[month] || {});
+      if (!d.strategy.allocations[month]) d.strategy.allocations[month] = {};
       d.strategy.allocations[month][key] = +val;
     });
     this.render();
@@ -3914,6 +3987,13 @@ const App = {
 
   clearGrowthTag() {
     this.growthTagFilter = '';
+    this.growthTagEntries = null;
+    this.render();
+  },
+
+  refreshGrowth() {
+    this._growthLoading = false;
+    this.growthData = null;
     this.growthTagEntries = null;
     this.render();
   },
@@ -4705,6 +4785,26 @@ const App = {
       if (vaultNav) vaultNav.style.display = 'none';
     }
     toast(useVault ? 'Vault connected' : 'Vault disconnected');
+    this.render();
+  },
+
+  setTaskSource(source) {
+    Store.update(d => { d.taskSource = source; });
+    this.render();
+    toast('Task source updated');
+  },
+
+  async saveRapidLogFile() {
+    const input = document.getElementById('settings-rapid-log');
+    const rapidLogFile = (input?.value || '').trim();
+    if (!rapidLogFile) return;
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rapidLogFile })
+    });
+    this.serverConfig = { ...this.serverConfig, rapidLogFile };
+    toast('Journal filename saved');
     this.render();
   },
 

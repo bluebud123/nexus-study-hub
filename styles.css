@@ -553,6 +553,12 @@ textarea { resize: vertical; min-height: 100px; }
   font-weight: 700;
   color: var(--text);
 }
+.strat-timeline-label.strat-timeline-cur {
+  color: var(--accent);
+}
+.strat-timeline-label {
+  width: 56px;
+}
 
 .strat-schedule-row {
   display: flex;
