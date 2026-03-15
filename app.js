@@ -3504,6 +3504,7 @@ const App = {
     const savedData = Store.get();
     const savedTheme = savedData.theme || 'dark';
     if (savedTheme === 'light') document.body.classList.add('light');
+    this._updateThemeToggle(savedTheme);
     if (savedData.accentColor) document.documentElement.style.setProperty('--accent', savedData.accentColor);
     const fontMap = { small: '13px', medium: '15px', large: '17px' };
     const zoomMap = { small: '0.875', medium: '1', large: '1.125' };
@@ -6125,9 +6126,16 @@ const App = {
     const newTheme = (data.theme || 'dark') === 'dark' ? 'light' : 'dark';
     Store.update(d => { d.theme = newTheme; });
     document.body.classList.toggle('light', newTheme === 'light');
-    const btn = document.getElementById('theme-toggle');
-    if (btn) btn.innerHTML = newTheme === 'dark' ? '&#9788;' : '&#9790;';
+    this._updateThemeToggle(newTheme);
     this.render();
+  },
+
+  _updateThemeToggle(theme) {
+    const btn = document.getElementById('theme-toggle');
+    if (!btn) return;
+    const isLight = theme === 'light';
+    btn.querySelector('.theme-toggle-icon').innerHTML = isLight ? '&#9788;' : '&#9790;';
+    btn.querySelector('.theme-toggle-label').textContent = isLight ? 'Light mode' : 'Dark mode';
   },
 
   setAccentColor(color) {
