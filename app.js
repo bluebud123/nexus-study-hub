@@ -284,14 +284,21 @@ function monthLabel(key) {
   return shortName + (y !== curYear ? " '" + String(y).slice(2) : '');
 }
 
-function getRoadmapMonths(strategy) {
+function getRoadmapMonths(strategy, checklists) {
   const cur = curMonthKey();
   const start = strategy.roadmapStart || addMonths(cur, -2);
-  const end   = strategy.roadmapEnd   || addMonths(cur, 6);
+  // Extend end to cover furthest checklist deadline so markers always show
+  let end = strategy.roadmapEnd || addMonths(cur, 6);
+  for (const cl of (checklists || [])) {
+    if (cl.deadline) {
+      const dlMonth = cl.deadline.slice(0, 7);
+      if (dlMonth > end) end = dlMonth;
+    }
+  }
   const months = [];
   let k = start;
   let guard = 0;
-  while (k <= end && guard++ < 48) {
+  while (k <= end && guard++ < 60) {
     months.push({ key: k, label: monthLabel(k) });
     k = addMonths(k, 1);
   }
@@ -556,20 +563,20 @@ const Views = {
     const cardRenderers = {
       'strategy-banner': () => {
         const s = Store.get().strategy;
-        const projects = s.projects || [];
+        const clProjects = Store.get().checklists || [];
         const allMs = Object.values(s.milestones).flat();
         const doneMs = allMs.filter(m => m.done).length;
-        const examDate = s.examDate ? new Date(s.examDate) : (projects[0]?.deadline ? new Date(projects[0].deadline) : null);
         return `
         <div class="card dash-strategy-banner">
           <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:stretch;">
-            ${projects.map(proj => {
+            ${clProjects.map(proj => {
               const dl = proj.deadline ? new Date(proj.deadline) : null;
               const dLeft = dl && !isNaN(dl) ? Math.max(0, Math.ceil((dl - new Date()) / 864e5)) : null;
+              const clColor = proj.color || '#7c6ff7';
               return `
-              <div style="flex:1; min-width:120px; padding:12px 16px; background:${proj.color}15; border:1px solid ${proj.color}40; border-radius:10px;">
-                <div style="font-size:10px; color:${proj.color}; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">${escapeHTML(proj.icon || '')} ${escapeHTML(proj.name)}</div>
-                <div style="font-size:28px; font-weight:800; color:${proj.color}; line-height:1.1; margin:4px 0;">${dLeft !== null ? dLeft : '—'}</div>
+              <div style="flex:1; min-width:120px; padding:12px 16px; background:${clColor}15; border:1px solid ${clColor}40; border-radius:10px; cursor:pointer;" onclick="App.currentView='strategy'; App.strategyTab='projects'; App.strategyProject='${proj.id}'; App.render();">
+                <div style="font-size:10px; color:${clColor}; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">${escapeHTML(proj.icon || '')} ${escapeHTML(proj.name)}</div>
+                <div style="font-size:28px; font-weight:800; color:${clColor}; line-height:1.1; margin:4px 0;">${dLeft !== null ? dLeft : '—'}</div>
                 <div style="font-size:11px; color:var(--text-dim);">${dLeft !== null ? 'days left' : 'no deadline'}</div>
               </div>`;
             }).join('')}
@@ -1406,7 +1413,7 @@ const Views = {
   strategy() {
     const data = Store.get();
     const s = data.strategy;
-    const roadmapMonths = getRoadmapMonths(s);
+    const roadmapMonths = getRoadmapMonths(s, data.checklists);
     const month = App.strategyMonth || curMonthKey();
     const tab = App.strategyTab || 'roadmap';
     const mLabel = monthLabel(month);
@@ -1967,12 +1974,13 @@ const Views = {
 
       <!-- Stat Cards — one per project + milestones -->
       <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
-        ${(s.projects || []).map(proj => {
+        ${(data.checklists || []).map(proj => {
           const dl = proj.deadline ? new Date(proj.deadline) : null;
           const dLeft = dl && !isNaN(dl) ? Math.max(0, Math.ceil((dl - new Date()) / 864e5)) : null;
-          return `<div class="stat-card" style="border-color:${proj.color}40;">
-            <div style="font-size:11px; color:${proj.color}; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">${escapeHTML(proj.icon || '')} ${escapeHTML(proj.name)}</div>
-            <div class="stat-number" style="color:${proj.color}; font-size:28px;">${dLeft !== null ? dLeft : '\u2014'}</div>
+          const clColor = proj.color || '#7c6ff7';
+          return `<div class="stat-card" style="border-color:${clColor}40; cursor:pointer;" onclick="App.strategyTab='projects'; App.strategyProject='${proj.id}'; App.render();">
+            <div style="font-size:11px; color:${clColor}; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">${escapeHTML(proj.icon || '')} ${escapeHTML(proj.name)}</div>
+            <div class="stat-number" style="color:${clColor}; font-size:28px;">${dLeft !== null ? dLeft : '\u2014'}</div>
             <div class="stat-label">${dLeft !== null ? 'days left' : 'no deadline'}</div>
           </div>`;
         }).join('')}
