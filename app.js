@@ -201,6 +201,79 @@ function curMonthKey() {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
 }
 
+// ── 50 personalised dashboard greetings ─────────────────────────────────────
+const GREETINGS = [
+  // Morning (0–11)
+  "Good morning{n}. A fresh start \u2014 make it count.",
+  "Rise and shine{n}! Today is full of potential.",
+  "Morning{n}. Small steps forward still move you ahead.",
+  "Hello{n}! A new day, a new chance to level up.",
+  "Good morning{n}. Your future self is cheering you on.",
+  "Wake up and be awesome{n}!",
+  "Good morning{n}. Consistency beats perfection every time.",
+  "Rise up{n}. What you do today shapes who you become.",
+  "Good morning{n}. One focused session can change your trajectory.",
+  "Morning{n}. The best time to start was yesterday \u2014 today is second best.",
+  "Good morning{n}. Show up, stay curious, keep growing.",
+  "Hey{n}, a brand new day just unlocked. Let\u2019s go.",
+  // Afternoon (12–23)
+  "Good afternoon{n}. Keep the momentum going!",
+  "Afternoon{n}. Halfway through \u2014 finish strong.",
+  "Hey{n}, hope the day is treating you well. Keep pushing!",
+  "Good afternoon{n}. Progress over perfection, always.",
+  "Afternoon check-in{n}: you\u2019re doing better than you think.",
+  "Hey{n}! This is your reminder that you\u2019ve got this.",
+  "Good afternoon{n}. Small wins add up to big things.",
+  "Afternoon{n}. Your dedication today becomes tomorrow\u2019s result.",
+  "Hey{n}, the grind doesn\u2019t stop \u2014 and neither do you.",
+  "Good afternoon{n}. Stay focused, stay consistent.",
+  "Afternoon{n}. Every hour of focus is an investment in yourself.",
+  "Hey{n}! Mid-day energy check \u2014 you\u2019re still in it.",
+  // Evening (24–35)
+  "Good evening{n}. Reflect, recharge, and set up tomorrow.",
+  "Evening{n}. Every bit of effort you put in today counts.",
+  "Good evening{n}. End the day strong \u2014 even a little matters.",
+  "Evening{n}. You made it through another day. Be proud.",
+  "Good evening{n}. Rest is part of growth too.",
+  "Hey{n}, how did today go? Log it and learn from it.",
+  "Evening{n}. What\u2019s one thing you\u2019re grateful for today?",
+  "Good evening{n}. The quiet hours ahead are golden.",
+  "Hey{n}! Night sessions hit different \u2014 you\u2019ve got this.",
+  "Good evening{n}. Today\u2019s effort is tomorrow\u2019s advantage.",
+  "Evening{n}. Wind down wisely \u2014 a rested mind learns faster.",
+  "Hey{n}, one last push before rest? Make it worthwhile.",
+  // Night (36–44)
+  "Burning the midnight oil{n}? Make it count.",
+  "Late night study session{n}? Proud of your dedication.",
+  "Hey{n}, night owls get things done too. Keep going.",
+  "Working late{n}? Remember to take breaks \u2014 you matter.",
+  "The night is yours{n}. Deep focus awaits.",
+  "Still going{n}? That\u2019s the spirit. One more session.",
+  "Hey{n}, night mode activated. Let\u2019s get things done.",
+  "The dedicated ones study while others sleep{n}.",
+  "Late night clarity{n} \u2014 the best insights come in the quiet.",
+  // Universal (45–49)
+  "Welcome back{n}. Every session brings you closer.",
+  "Hello{n}. You showed up \u2014 that\u2019s already a win.",
+  "Hey there{n}. Let\u2019s make today count.",
+  "Welcome back{n}. Your future self will thank you for this.",
+  "Hello{n}. Focus on progress, not perfection.",
+];
+
+function getGreeting(userName) {
+  const h = new Date().getHours();
+  const d = new Date().getDate();
+  const n = userName ? `, ${userName}` : '';
+  let pool;
+  if (h >= 6 && h < 12)       pool = GREETINGS.slice(0, 12);
+  else if (h >= 12 && h < 17) pool = GREETINGS.slice(12, 24);
+  else if (h >= 17 && h < 21) pool = GREETINGS.slice(24, 36);
+  else                         pool = GREETINGS.slice(36, 45);
+  // Rotate through pool daily so greeting changes every day without being random
+  const msg = pool[d % pool.length];
+  return msg.replace('{n}', n);
+}
+
 function monthLabel(key) {
   if (!key || !key.includes('-')) return key;
   const [y, m] = key.split('-').map(Number);
@@ -223,23 +296,9 @@ function getRoadmapMonths(strategy) {
   return months;
 }
 
-const STREAMS = {
-  exam:       { name: "Master's Exam",  icon: "\u{1F4D6}", color: '#E8453C' },
-  manuscript: { name: 'CSS-25-705',     icon: "\u{1F4DD}", color: '#2E86DE' },
-  scoliox:    { name: 'Scoliox Dev',    icon: "\u{1F916}", color: '#10AC84' },
-};
-
 const DEFAULT_ALLOC = {};
 
 const DEFAULT_MILESTONES = {};
-
-const DECISION_RULES = [
-  { trigger: 'Manuscript deadline approaching', action: 'Prioritize manuscript until submitted', icon: '\u26A1' },
-  { trigger: 'Mock exam score < 70% by August', action: 'Cut Scoliox to 0%, manuscript to 0%', icon: '\u{1F6A8}' },
-  { trigger: 'Falling behind MCQ targets 2 months running', action: 'Reassess all non-exam commitments', icon: '\u26A0\uFE0F' },
-  { trigger: 'Burnout symptoms detected', action: 'Full week off from Scoliox + manuscript', icon: '\u{1F6D1}' },
-  { trigger: 'When in doubt about what to work on', action: 'Always default to exam prep', icon: '\u{1F9ED}' },
-];
 
 const WEEKLY_TEMPLATE = [
   { time: '6:00 AM', activity: 'Review flashcards / quick MCQs (30 min)', stream: 'exam' },
@@ -443,6 +502,8 @@ const Views = {
     }
     let currentStreak = 0;
     const streakCheck = new Date();
+    // Grace-for-today: if today has no activity yet, start counting from yesterday
+    if (!activityDays.has(streakCheck.toISOString().slice(0, 10))) streakCheck.setDate(streakCheck.getDate() - 1);
     for (let i = 0; i < 365; i++) {
       const dk = streakCheck.toISOString().slice(0, 10);
       if (activityDays.has(dk)) { currentStreak++; streakCheck.setDate(streakCheck.getDate() - 1); }
@@ -451,6 +512,16 @@ const Views = {
 
     const recentCaptures = data.captures.slice(-3).reverse();
     const recentTasks = data.tasks.filter(t => !t.done).slice(-5).reverse();
+
+    // Goals summary for dashboard
+    const activeGoalsList = (data.goals || []).filter(g => !g.achieved && !g.gaveUp);
+    const achievedGoalsList = (data.goals || []).filter(g => g.achieved);
+
+    // Today's habits summary
+    const scheduleItems = data.strategy?.schedule || [];
+    const todaySchedLog = (data.scheduleLog || {})[todayKey()] || {};
+    const checkedHabitsToday = scheduleItems.filter((_, i) => todaySchedLog['slot-' + i]).length;
+    const habitPctToday = scheduleItems.length ? Math.round(checkedHabitsToday / scheduleItems.length * 100) : 0;
 
     // Vault open tasks — #active only
     const taskSource = data.taskSource || 'both';
@@ -491,19 +562,29 @@ const Views = {
         <div class="card dash-strategy-banner">
           <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:stretch;">
             ${projects.map(proj => {
-              const dl = new Date(proj.deadline);
-              const dLeft = Math.max(0, Math.ceil((dl - new Date()) / 864e5));
+              const dl = proj.deadline ? new Date(proj.deadline) : null;
+              const dLeft = dl && !isNaN(dl) ? Math.max(0, Math.ceil((dl - new Date()) / 864e5)) : null;
               return `
               <div style="flex:1; min-width:120px; padding:12px 16px; background:${proj.color}15; border:1px solid ${proj.color}40; border-radius:10px;">
                 <div style="font-size:10px; color:${proj.color}; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">${escapeHTML(proj.icon || '')} ${escapeHTML(proj.name)}</div>
-                <div style="font-size:28px; font-weight:800; color:${proj.color}; line-height:1.1; margin:4px 0;">${dLeft}</div>
-                <div style="font-size:11px; color:var(--text-dim);">days left</div>
+                <div style="font-size:28px; font-weight:800; color:${proj.color}; line-height:1.1; margin:4px 0;">${dLeft !== null ? dLeft : '—'}</div>
+                <div style="font-size:11px; color:var(--text-dim);">${dLeft !== null ? 'days left' : 'no deadline'}</div>
               </div>`;
             }).join('')}
-            <div style="flex:1; min-width:120px; padding:12px 16px; background:var(--bg-card); border:1px solid var(--border); border-radius:10px;">
-              <div style="font-size:10px; color:var(--text-dim); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Milestones</div>
-              <div style="font-size:28px; font-weight:800; color:var(--green); line-height:1.1; margin:4px 0;">${doneMs}/${allMs.length}</div>
-              <div class="progress-bar" style="margin-top:6px;"><div class="progress-fill" style="width:${allMs.length ? Math.round(doneMs/allMs.length*100) : 0}%; background:var(--green);"></div></div>
+            <div style="flex:1; min-width:120px; padding:12px 16px; background:var(--bg-card); border:1px solid var(--border); border-radius:10px; cursor:pointer;" onclick="App.currentView='goals'; App.render();">
+              <div style="font-size:10px; color:var(--text-dim); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Goals</div>
+              <div style="font-size:28px; font-weight:800; color:#a78bfa; line-height:1.1; margin:4px 0;">${activeGoalsList.length}</div>
+              <div style="font-size:11px; color:var(--text-dim);">${activeGoalsList.length === 1 ? '1 active' : activeGoalsList.length + ' active'}${achievedGoalsList.length ? ' · ' + achievedGoalsList.length + ' achieved' : ''}</div>
+              ${activeGoalsList.length ? `<div style="margin-top:6px; display:flex; flex-direction:column; gap:3px;">${activeGoalsList.slice(0,2).map(g => {
+                const pct = g.target > 0 ? Math.min(100, Math.round(g.current/g.target*100)) : 0;
+                return `<div><div style="font-size:10px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100px;">${escapeHTML(g.text)}</div><div style="height:3px; background:var(--border); border-radius:2px; margin-top:2px;"><div style="height:3px; width:${pct}%; background:#a78bfa; border-radius:2px;"></div></div></div>`;
+              }).join('')}</div>` : '<div style="font-size:11px; color:var(--text-dim); margin-top:4px;">Set a goal →</div>'}
+            </div>
+            <div style="flex:1; min-width:120px; padding:12px 16px; background:var(--bg-card); border:1px solid var(--border); border-radius:10px; cursor:pointer;" onclick="App.currentView='strategy'; App.render();">
+              <div style="font-size:10px; color:var(--text-dim); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Habits Today</div>
+              <div style="font-size:28px; font-weight:800; color:#f472b6; line-height:1.1; margin:4px 0;">${checkedHabitsToday}<span style="font-size:14px; font-weight:400; color:var(--text-dim);">/${scheduleItems.length}</span></div>
+              <div style="font-size:11px; color:var(--text-dim); margin-bottom:4px;">${scheduleItems.length === 0 ? 'No habits set' : habitPctToday === 100 ? 'All done! 🎉' : habitPctToday + '% complete'}</div>
+              ${scheduleItems.length ? `<div class="progress-bar" style="margin-top:4px;"><div class="progress-fill" style="width:${habitPctToday}%; background:#f472b6;"></div></div>` : ''}
             </div>
           </div>
         </div>`;
@@ -520,7 +601,6 @@ const Views = {
           <div class="stat-card"><div class="stat-number">${doneTasks}</div><div class="stat-label">Completed</div></div>
           <div class="stat-card"><div class="stat-number">${totalCaptures}</div><div class="stat-label">Captures</div></div>
           <div class="stat-card"><div class="stat-number">${journalEntries}</div><div class="stat-label">Journal</div></div>
-          <div class="stat-card"><div class="stat-number">${activeGoals}</div><div class="stat-label">Goals</div></div>
         </div>`;
       },
 
@@ -605,7 +685,7 @@ const Views = {
             </div>
             <div class="stat-card" onclick="document.querySelector('[data-view=growth]').click()" style="cursor:pointer;">
               <div class="stat-number">${App.vaultStats.entriesThisWeek}</div>
-              <div class="stat-label">This Week</div>
+              <div class="stat-label">Journal This Week</div>
             </div>
           </div>`;
       },
@@ -636,7 +716,7 @@ const Views = {
 
     return `
       <h1 class="view-title">Dashboard</h1>
-      <p class="view-subtitle">Your personal command center</p>
+      <p class="view-subtitle">${getGreeting(data.userName)}</p>
 
       ${currentStreak > 0 ? `
         <div class="streak-display">
@@ -687,11 +767,14 @@ const Views = {
     const schedDone = Object.keys(todaySchedLog).filter(k => todaySchedLog[k]).length;
     const scheduleHTML = userSchedule.map((slot, idx) => {
       const checked = todaySchedLog['slot-' + idx];
-      const color = slot.stream === 'exam' ? STREAMS.exam.color : slot.stream === 'flex' ? 'var(--accent)' : 'var(--text-dim)';
+      const schedProj = (data.strategy.projects || []).find(p => p.id === slot.stream || p.name === slot.stream);
+      const color = schedProj ? schedProj.color : slot.stream === 'flex' ? 'var(--accent)' : 'var(--text-dim)';
+      const streak = schedSlotStreak(idx);
       return `<div class="today-sched-row ${checked ? 'sched-done' : ''}" style="align-items:center;">
         <input type="checkbox" class="sched-check" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); App.toggleScheduleSlot(${idx})" style="accent-color:${color}; cursor:pointer; flex-shrink:0;">
         <span class="today-sched-time" style="color:${color};">${slot.time}</span>
-        <span class="${checked ? 'sched-activity-done' : ''}">${escapeHTML(slot.activity)}</span>
+        <span style="flex:1;" class="${checked ? 'sched-activity-done' : ''}">${escapeHTML(slot.activity)}</span>
+        ${streak > 0 ? `<span class="habit-streak" title="${streak}-day streak"><span class="habit-streak-fire">&#128293;</span>${streak}d</span>` : ''}
       </div>`;
     }).join('');
 
@@ -722,16 +805,13 @@ const Views = {
       timerPct = ts.total ? Math.round(((ts.total - (ts.seconds || 0)) / ts.total) * 100) : 0;
     }
 
-    // Habits
-    const habits = data.habits || { definitions: [], log: {} };
-    const todayHabitLog = habits.log[todayDate] || {};
-    function habitStreak(habitId) {
+    // Schedule slot streak helper
+    function schedSlotStreak(idx) {
       let streak = 0;
       const d = new Date();
       for (let i = 0; i < 60; i++) {
         const dk = d.toISOString().slice(0, 10);
-        const dayLog = habits.log[dk] || {};
-        if (dayLog[habitId]) { streak++; d.setDate(d.getDate() - 1); }
+        if ((schedLog[dk] || {})['slot-' + idx]) { streak++; d.setDate(d.getDate() - 1); }
         else break;
       }
       return streak;
@@ -813,64 +893,6 @@ const Views = {
         })()}
       </div>
 
-      <!-- Habits -->
-      ${habits.definitions.length > 0 ? (() => {
-        const totalHabits = habits.definitions.length;
-        const doneHabits = habits.definitions.filter(h => todayHabitLog[h.id]).length;
-        const habitPct = totalHabits ? Math.round((doneHabits / totalHabits) * 100) : 0;
-        return `
-        <div class="card">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <div class="strat-section-label" style="margin:0;">Habits</div>
-            <span class="vtask-source" onclick="App.showHabitEditor=!App.showHabitEditor; App.render();">Edit</span>
-          </div>
-          <div class="habit-progress">
-            <div class="progress-bar" style="height:4px; flex:1;">
-              <div class="progress-fill" style="width:${habitPct}%; background:var(--green);"></div>
-            </div>
-            <span style="font-size:11px; color:var(--text-dim);">${doneHabits}/${totalHabits} today</span>
-          </div>
-          <div class="habits-row">
-            ${habits.definitions.map(h => {
-              const checked = todayHabitLog[h.id];
-              const streak = habitStreak(h.id);
-              return `<div class="habit-item ${checked ? 'habit-done habit-just-checked' : ''}" onclick="App.toggleHabit('${h.id}')">
-                <span class="habit-icon">${h.icon || '&#9744;'}</span>
-                <span class="habit-name">${escapeHTML(h.name)}</span>
-                ${streak > 1 ? `<span class="habit-streak"><span class="habit-streak-fire">&#128293;</span>${streak}d</span>` : ''}
-              </div>`;
-            }).join('')}
-          </div>
-        </div>`;
-      })() : ''}
-
-      <!-- Habit Editor (inline) -->
-      ${App.showHabitEditor ? `
-        <div class="card">
-          <div class="strat-section-label">Edit Habits</div>
-          ${habits.definitions.map((h, i) => `
-            <div class="strat-settings-row" style="margin-bottom:6px; cursor:grab;" draggable="true"
-              ondragstart="App.onHabitDragStart(event, ${i})"
-              ondragover="event.preventDefault(); this.classList.add('drag-over')"
-              ondragleave="this.classList.remove('drag-over')"
-              ondrop="this.classList.remove('drag-over'); App.onHabitDrop(event, ${i})">
-              <span style="color:var(--text-dim); cursor:grab;">&#8942;</span>
-              <input type="text" class="strat-settings-input" value="${escapeHTML(h.icon || '')}" style="width:40px; text-align:center;" disabled>
-              <input type="text" class="strat-settings-input" value="${escapeHTML(h.name)}" style="flex:1;" disabled>
-              <button class="btn btn-ghost btn-sm" onclick="App.deleteHabit('${h.id}')">&times;</button>
-            </div>
-          `).join('')}
-          <div class="strat-settings-row" style="margin-top:8px;">
-            <input type="text" id="habit-icon-input" class="strat-settings-input" placeholder="Icon" style="width:40px; text-align:center;" value="&#9745;">
-            <input type="text" id="habit-name-input" class="strat-settings-input" placeholder="Habit name" style="flex:1;"
-              onkeydown="if(event.key==='Enter')App.addHabit()">
-            <button class="btn btn-primary btn-sm" onclick="App.addHabit()">Add</button>
-          </div>
-          <div style="text-align:right; margin-top:8px;">
-            <button class="btn btn-ghost btn-sm" onclick="App.showHabitEditor=false; App.render();">Done</button>
-          </div>
-        </div>
-      ` : ''}
 
       <!-- Topics Due for Review -->
       ${topicsDue.length > 0 ? `
@@ -919,12 +941,21 @@ const Views = {
         <!-- Schedule -->
         <div class="card">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-            <div class="strat-section-label" style="margin:0;">Schedule</div>
+            <div class="strat-section-label" style="margin:0;">Habits</div>
             <div style="display:flex; align-items:center; gap:8px;">
               <span style="font-size:11px; color:var(--text-dim);">${schedDone}/${userSchedule.length}</span>
               <span class="vtask-source" onclick="App._editSchedule=!App._editSchedule; App.render();">${App._editSchedule ? 'Done' : 'Edit'}</span>
             </div>
           </div>
+          ${userSchedule.length > 0 ? (() => {
+            const schedPct = Math.round((schedDone / userSchedule.length) * 100);
+            return `<div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+              <div class="progress-bar" style="height:5px; flex:1;">
+                <div class="progress-fill" style="width:${schedPct}%; background:${schedPct===100?'var(--green)':'var(--accent)'};"></div>
+              </div>
+              <span style="font-size:11px; color:${schedPct===100?'var(--green)':'var(--text-dim)'}; min-width:30px;">${schedPct}%</span>
+            </div>`;
+          })() : ''}
           ${scheduleHTML}
           ${App._editSchedule ? `
             <div style="margin-top:8px; border-top:1px solid var(--border); padding-top:8px;">
@@ -1038,11 +1069,14 @@ const Views = {
   // ─── Tasks ───────────────────────────────────
   tasks() {
     const data = Store.get();
-    const filter = App.taskFilter || 'all';
+    const filter = App.taskFilter || 'active';
     let tasks = [...data.tasks].reverse();
 
-    if (filter === 'active') tasks = tasks.filter(t => !t.done);
-    else if (filter === 'done') tasks = tasks.filter(t => t.done);
+    if (filter === 'done') tasks = tasks.filter(t => t.done);
+    else {
+      // Default (active): undone first (with #active tagged at top), then done at bottom
+      tasks = tasks.filter(t => !t.done);
+    }
 
     // Vault tasks
     const vt = App.vaultTasks;
@@ -1098,7 +1132,6 @@ const Views = {
 
       ${taskSrc !== 'vault' ? `
       <div class="filter-tabs" style="display:flex; align-items:center;">
-        <span class="filter-tab ${filter==='all'?'active':''}" onclick="App.setTaskFilter('all')">All (${data.tasks.length})</span>
         <span class="filter-tab ${filter==='active'?'active':''}" onclick="App.setTaskFilter('active')">Active (${data.tasks.filter(t=>!t.done).length})</span>
         <span class="filter-tab ${filter==='done'?'active':''}" onclick="App.setTaskFilter('done')">Done (${data.tasks.filter(t=>t.done).length})</span>
         ${filter === 'done' && data.tasks.filter(t=>t.done).length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.clearDoneTasks()" style="margin-left:auto; color:var(--red); font-size:11px;">Clear all done</button>` : ''}
@@ -1241,6 +1274,8 @@ const Views = {
   // ─── Goals ───────────────────────────────────
   goals() {
     const data = Store.get();
+    const activeGoals = (data.goals || []).filter(g => !g.achieved);
+    const achievedGoals = (data.goals || []).filter(g => g.achieved);
 
     return `
       <h1 class="view-title">Goals</h1>
@@ -1249,31 +1284,65 @@ const Views = {
       <div class="input-row">
         <input type="text" id="goal-input" placeholder="What's your goal?" onkeydown="if(event.key==='Enter')App.addGoal()">
         <input type="text" id="goal-target" placeholder="Target (number)" style="max-width:130px;" onkeydown="if(event.key==='Enter')App.addGoal()">
+        <select id="goal-frequency" style="background:var(--bg-input); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:6px 10px; font-size:12px; max-width:110px;">
+          <option value="once">Once</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+        </select>
         <button class="btn btn-primary" onclick="App.addGoal()">Add Goal</button>
       </div>
 
-      ${data.goals.length ? `
+      ${activeGoals.length ? `
+        <div class="strat-section-label" style="margin-top:16px; margin-bottom:8px;">Active Goals</div>
         <div class="item-list">
-          ${data.goals.map(g => {
+          ${activeGoals.map(g => {
             const pct = g.target > 0 ? Math.min(100, Math.round((g.current / g.target) * 100)) : 0;
-            const isDone = pct >= 100;
+            const freqBadge = g.frequency && g.frequency !== 'once' ? `<span style="font-size:10px;color:var(--text-dim);background:var(--bg-input);border-radius:4px;padding:1px 6px;margin-left:6px;">${g.frequency}</span>` : '';
+            const prompt = App._goalPrompt;
+            const isArchivePrompt = prompt?.id === g.id && prompt?.type === 'archive';
+            const isGiveUpPrompt = prompt?.id === g.id && prompt?.type === 'giveup';
+            const barColor = pct >= 100 ? 'var(--green)' : 'var(--accent)';
             return `
-              <div class="card">
+              <div class="card" style="${pct >= 100 ? 'border-left:3px solid var(--green);' : ''}">
                 <div class="goal-header">
-                  <span class="goal-title">${isDone ? '&#10003; ' : ''}${escapeHTML(g.text)}</span>
+                  <span class="goal-title">${escapeHTML(g.text)}${freqBadge}</span>
                   <span class="goal-pct">${g.current} / ${g.target} (${pct}%)</span>
                 </div>
                 <div class="progress-bar">
-                  <div class="progress-fill" style="width:${pct}%; background:${isDone ? 'var(--green)' : 'var(--accent)'}"></div>
+                  <div class="progress-fill" style="width:${pct}%; background:${barColor}"></div>
                 </div>
-                <div style="margin-top:10px; display:flex; gap:8px;">
+                <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
                   <button class="btn btn-ghost btn-sm" onclick="App.incrementGoal('${g.id}', -1)">-1</button>
                   <button class="btn btn-primary btn-sm" onclick="App.incrementGoal('${g.id}', 1)">+1</button>
                   <button class="btn btn-ghost btn-sm" onclick="App.incrementGoal('${g.id}', 5)">+5</button>
                   <button class="btn btn-ghost btn-sm" onclick="App.incrementGoal('${g.id}', 10)">+10</button>
                   <div style="flex:1;"></div>
-                  <button class="btn btn-ghost btn-sm" onclick="App.deleteGoal('${g.id}')">Remove</button>
+                  ${pct >= 100 ? `<button class="btn btn-sm" style="background:var(--green);color:#fff;" onclick="App.showGoalPrompt('${g.id}','archive')">🏆 Archive</button>` : ''}
+                  <button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="App.showGoalPrompt('${g.id}','giveup')">Give Up</button>
                 </div>
+                ${isArchivePrompt ? `
+                  <div style="margin-top:12px; padding:12px; background:var(--bg-input); border-radius:8px; border-left:3px solid var(--green);">
+                    <div style="font-size:13px; font-weight:600; color:var(--green); margin-bottom:6px;">🎉 Amazing work! What made you succeed?</div>
+                    <div style="font-size:12px; color:var(--text-dim); margin-bottom:8px;">Reflect on your win — this will inspire your future self.</div>
+                    <textarea id="goal-reason-input" placeholder="e.g. Stayed consistent, broke it into smaller steps, had a study buddy..." style="width:100%; min-height:64px; background:var(--bg-card); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:8px; font-size:12px; resize:vertical; box-sizing:border-box;"></textarea>
+                    <div style="display:flex; gap:8px; margin-top:8px; justify-content:flex-end;">
+                      <button class="btn btn-ghost btn-sm" onclick="App._goalPrompt=null;App.render()">Cancel</button>
+                      <button class="btn btn-sm" style="background:var(--green);color:#fff;" onclick="App.archiveGoal('${g.id}')">Save & Archive 🏆</button>
+                    </div>
+                  </div>
+                ` : ''}
+                ${isGiveUpPrompt ? `
+                  <div style="margin-top:12px; padding:12px; background:var(--bg-input); border-radius:8px; border-left:3px solid var(--red);">
+                    <div style="font-size:13px; font-weight:600; color:var(--text); margin-bottom:6px;">It's okay to let go — every step taught you something.</div>
+                    <div style="font-size:12px; color:var(--text-dim); margin-bottom:8px;">What held you back? Being honest helps you grow.</div>
+                    <textarea id="goal-reason-input" placeholder="e.g. Life got busy, goal was too ambitious, priorities shifted..." style="width:100%; min-height:64px; background:var(--bg-card); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:8px; font-size:12px; resize:vertical; box-sizing:border-box;"></textarea>
+                    <div style="display:flex; gap:8px; margin-top:8px; justify-content:flex-end;">
+                      <button class="btn btn-ghost btn-sm" onclick="App._goalPrompt=null;App.render()">Cancel</button>
+                      <button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="App.giveUpGoal('${g.id}')">Give Up Goal</button>
+                    </div>
+                  </div>
+                ` : ''}
               </div>
             `;
           }).join('')}
@@ -1281,9 +1350,45 @@ const Views = {
       ` : `
         <div class="empty-state">
           <div class="empty-icon">&#9650;</div>
-          <div class="empty-text">No goals yet. Set a target like "Complete 500 MCQs" and track your progress!</div>
+          <div class="empty-text">No active goals. Set a target like "Complete 500 MCQs" and track your progress!</div>
         </div>
       `}
+
+      ${achievedGoals.length ? `
+        <div class="strat-section-label" style="margin-top:24px; margin-bottom:8px; color:#a78bfa;">🏆 Achieved Goals</div>
+        <div class="item-list">
+          ${achievedGoals.map(g => `
+            <div class="card" style="opacity:0.9; border-left:3px solid #a78bfa;">
+              <div class="goal-header">
+                <span class="goal-title" style="color:var(--text);">✓ ${escapeHTML(g.text)}</span>
+                <span style="font-size:11px; color:#a78bfa;">${g.achievedDate || ''}</span>
+              </div>
+              ${g.achievedReason ? `<div style="font-size:12px; color:var(--text-dim); margin-top:6px; padding:6px 8px; background:var(--bg-input); border-radius:6px; font-style:italic;">"${escapeHTML(g.achievedReason)}"</div>` : ''}
+              <div style="margin-top:8px; display:flex; justify-content:flex-end;">
+                <button class="btn btn-ghost btn-sm" onclick="App.deleteGoal('${g.id}')">Remove</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      ${((data.goals || []).filter(g => g.gaveUp)).length ? `
+        <div class="strat-section-label" style="margin-top:24px; margin-bottom:8px; color:var(--text-dim);">Given Up Goals</div>
+        <div class="item-list">
+          ${(data.goals || []).filter(g => g.gaveUp).map(g => `
+            <div class="card" style="opacity:0.65; border-left:3px solid var(--border);">
+              <div class="goal-header">
+                <span class="goal-title" style="color:var(--text-dim); text-decoration:line-through;">${escapeHTML(g.text)}</span>
+                <span style="font-size:11px; color:var(--text-dim);">${g.gaveUpDate || ''}</span>
+              </div>
+              ${g.gaveUpReason ? `<div style="font-size:12px; color:var(--text-dim); margin-top:6px; padding:6px 8px; background:var(--bg-input); border-radius:6px; font-style:italic;">"${escapeHTML(g.gaveUpReason)}"</div>` : ''}
+              <div style="margin-top:8px; display:flex; justify-content:flex-end;">
+                <button class="btn btn-ghost btn-sm" onclick="App.deleteGoal('${g.id}')">Remove</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
     `;
   },
 
@@ -1305,21 +1410,12 @@ const Views = {
     const daysLeft = Math.max(0, Math.ceil((examDate - new Date()) / 864e5));
 
     const roadmapIdx = roadmapMonths.findIndex(m => m.key === month);
-    const phase = roadmapIdx <= 3 ? 'Foundation' : roadmapIdx <= 5 ? 'Deep Study' : roadmapIdx <= 7 ? 'Intensive' : 'Final Sprint';
+    const totalRoadmapMonths = roadmapMonths.length;
+    const phasePct = totalRoadmapMonths > 0 ? roadmapIdx / totalRoadmapMonths : 0;
+    const phase = phasePct <= 0.25 ? 'Foundation' : phasePct <= 0.5 ? 'Deep Study' : phasePct <= 0.75 ? 'Intensive' : 'Final Sprint';
 
-    const curAlloc = s.allocations[month] || {};
     const curMs = s.milestones[month] || [];
     const monthDone = curMs.filter(m => m.done).length;
-    const allocProjects = s.projects || [];
-
-    function allocBar(alloc) {
-      if (!allocProjects.length) return '<div style="font-size:11px;color:var(--text-dim);line-height:20px;padding-left:4px;">Add projects in Settings to track allocation</div>';
-      return allocProjects.map(proj => {
-        const val = alloc[proj.id] || 0;
-        if (val === 0) return '';
-        return `<div class="strat-alloc-seg" style="width:${val}%; background:${proj.color || 'var(--accent)'};">${val >= 12 ? val + '%' : ''}</div>`;
-      }).join('');
-    }
 
     function priorityBadge(p) {
       const m = { critical: ['var(--red)', 'CRIT'], high: ['var(--amber)', 'HIGH'], medium: ['var(--accent)', 'MED'], low: ['var(--text-dim)', 'LOW'] };
@@ -1335,6 +1431,130 @@ const Views = {
       const calYear = App.calendarYear;
       const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       tabContent = `
+        <!-- Project Timeline (Gantt) — checklists as rows -->
+        ${(() => {
+          const ganttMonths = roadmapMonths;
+          const clLists = data.checklists || [];
+          if (!clLists.length) return '<div class="card"><div style="font-size:12px;color:var(--text-dim);padding:12px;">Add a project in the Projects tab to see the timeline.</div></div>';
+          const ganttRows = clLists.map(cl => {
+            const allItems = (cl.sections||[]).flatMap(sec => sec.items||[]);
+            const totalItems = allItems.length;
+            const activityByMonth = {};
+            for (const item of allItems) {
+              for (const rev of (item.revisions||[])) {
+                const mKey = rev.date ? rev.date.slice(0,7) : null;
+                if (mKey) activityByMonth[mKey] = (activityByMonth[mKey]||0) + 1;
+              }
+            }
+            const doneItems = allItems.filter(it => (it.revisions||[]).length > 0 || it.done).length;
+            const overallPct = totalItems ? Math.round(doneItems/totalItems*100) : 0;
+            const sections = (cl.sections||[]).map(sec => {
+              const sitems = sec.items||[];
+              const sdone = sitems.filter(it => (it.revisions||[]).length > 0 || it.done).length;
+              return { name: sec.name||'Untitled', total: sitems.length, done: sdone, pct: sitems.length ? Math.round(sdone/sitems.length*100) : 0 };
+            });
+            const deadlineMonth = cl.deadline ? cl.deadline.slice(0,7) : null;
+            const endIdx = deadlineMonth ? ganttMonths.findIndex(m => m.key === deadlineMonth) : ganttMonths.length-1;
+            const color = cl.color || 'var(--accent)';
+            return { ...cl, activityByMonth, totalItems, doneItems, overallPct, sections, deadlineMonth, endIdx: endIdx >= 0 ? endIdx : ganttMonths.length-1, color };
+          });
+          const curIdx = ganttMonths.findIndex(m => m.key === curMonthKey());
+          const yearGroups = [];
+          let curYG = null;
+          for (const m of ganttMonths) {
+            const yr = m.key.slice(0,4);
+            if (!curYG || curYG.year !== yr) { curYG = { year: yr, count: 0 }; yearGroups.push(curYG); }
+            curYG.count++;
+          }
+          if (!App._ganttExpanded) App._ganttExpanded = {};
+          return `
+          <div class="card">
+            <div class="strat-section-label">Project Timeline</div>
+            <div class="gantt-chart">
+              <div class="gantt-header gantt-year-row">
+                <div class="gantt-label-wide"></div>
+                ${yearGroups.map(yg => `<div class="gantt-year-cell" style="width:${yg.count * 52}px;">${yg.year}</div>`).join('')}
+              </div>
+              <div class="gantt-header">
+                <div class="gantt-label-wide"></div>
+                ${ganttMonths.map(m => `<div class="gantt-month ${m.key === curMonthKey() ? 'gantt-today' : ''}">${m.label.split(' ')[0]}</div>`).join('')}
+              </div>
+              ${ganttRows.map(row => {
+                const isExpanded = !!App._ganttExpanded[row.id];
+                const curKey = curMonthKey();
+                const maxBarH = 43;
+                const mainRow = `
+                <div class="gantt-row">
+                  <div class="gantt-label-wide gantt-proj-label" title="${escapeHTML(row.name)}" style="border-left:3px solid ${row.color}; cursor:pointer;" onclick="App.toggleGanttExpand('${row.id}')"><span style="color:${row.color};">${row.icon||'📋'}</span> <span style="color:var(--text); font-size:13px; font-weight:700;">${escapeHTML(row.name)}</span></div>
+                  ${ganttMonths.map((m, i) => {
+                    const isDeadline = m.key === row.deadlineMonth;
+                    const inRange = i <= row.endIdx;
+                    const isCurrent = m.key === month;
+                    const isFutureMonth = m.key > curKey;
+                    const isCurrentMonth = m.key === curKey;
+                    // Cumulative: sum all activity up to and including this month
+                    const cumDone = ganttMonths.slice(0, i + 1).reduce((s, gm) => s + (row.activityByMonth[gm.key] || 0), 0);
+                    const prevCumDone = ganttMonths.slice(0, i).reduce((s, gm) => s + (row.activityByMonth[gm.key] || 0), 0);
+                    const fillPct = row.totalItems > 0 ? Math.min(100, Math.round(cumDone / row.totalItems * 100)) : 0;
+                    const prevPct = row.totalItems > 0 ? Math.min(100, Math.round(prevCumDone / row.totalItems * 100)) : 0;
+                    const hasActivity = (row.activityByMonth[m.key] || 0) > 0;
+                    const hasAnyCumulative = cumDone > 0;
+                    const allDone = row.overallPct >= 100;
+                    const pctText = hasAnyCumulative ? (allDone ? '✓' : fillPct + '%') : '';
+                    const cellClass = [
+                      hasActivity ? (allDone ? 'gantt-done' : 'gantt-active') : inRange ? 'gantt-span' : '',
+                      isDeadline ? 'gantt-deadline-cell' : '',
+                      isCurrent ? 'gantt-selected' : ''
+                    ].filter(Boolean).join(' ');
+                    const barColor = allDone ? 'var(--green)' : row.color;
+                    const showBar = !isFutureMonth && hasAnyCumulative;
+                    const curBarH = Math.max(2, Math.round(fillPct / 100 * maxBarH));
+                    const prevBarH = Math.max(0, Math.round(prevPct / 100 * maxBarH));
+                    const thisMonthBarH = Math.max(0, curBarH - prevBarH);
+                    const barHtml = showBar ? (isCurrentMonth && thisMonthBarH > 0 ?
+                      `<div style="position:absolute;bottom:2px;left:4px;right:4px;height:${curBarH}px;">
+                        ${prevBarH > 0 ? `<div style="position:absolute;bottom:0;left:0;right:0;height:${prevBarH}px;background:${barColor};border-radius:2px;opacity:0.75;"></div>` : ''}
+                        <div style="position:absolute;bottom:${prevBarH}px;left:0;right:0;height:${thisMonthBarH}px;background:${barColor};border-radius:2px;filter:brightness(1.7);"></div>
+                      </div>` :
+                      `<span class="gantt-bar" style="height:${curBarH}px;background:${barColor};opacity:0.85;"></span>`) : '';
+                    return `<div class="gantt-cell ${cellClass}" onclick="App.setStrategyMonth('${m.key}')" title="${showBar ? cumDone+' items done (cumulative)' : isDeadline ? 'Deadline' : ''}">
+                      ${barHtml}
+                      ${showBar ? `<span class="gantt-pct">${pctText}</span>` : ''}
+                      ${isDeadline ? '<span class="gantt-deadline-marker">◆</span>' : ''}
+                    </div>`;
+                  }).join('')}
+                </div>`;
+                const sectionRows = isExpanded ? row.sections.filter(sec => sec.total > 0).map(sec => `
+                <div class="gantt-row gantt-section-row">
+                  <div class="gantt-label-wide gantt-section-label-cell" onclick="App.jumpToProjectSection('${row.id}')" style="cursor:pointer;" title="Go to project">
+                    <div style="display:flex;align-items:center;gap:6px;padding-left:12px;">
+                      <span style="font-size:11px;font-weight:600;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;" title="${escapeHTML(sec.name)}">${escapeHTML(sec.name)}</span>
+                      <span style="font-size:10px;color:var(--text-dim);white-space:nowrap;flex-shrink:0;">${sec.done}/${sec.total}</span>
+                    </div>
+                  </div>
+                  <div style="display:flex;align-items:center;flex:1;padding:0 8px;">
+                    <div style="flex:1;height:6px;background:var(--bg-input);border-radius:3px;">
+                      <div style="height:100%;width:${sec.pct}%;background:${sec.pct===100?'var(--green)':row.color};border-radius:3px;transition:width 0.3s;"></div>
+                    </div>
+                    <span style="font-size:10px;color:var(--text-dim);margin-left:6px;min-width:28px;">${sec.pct}%</span>
+                  </div>
+                </div>`).join('') : '';
+                return mainRow + sectionRows;
+              }).join('')}
+              ${curIdx >= 0 ? `<div class="gantt-row gantt-now-row">
+                <div class="gantt-label-wide" style="font-size:10px;color:var(--text-dim);">Now</div>
+                ${ganttMonths.map((m, i) => `<div class="gantt-cell" style="${i===curIdx?'border-left:2px solid var(--accent);':''}"></div>`).join('')}
+              </div>` : ''}
+            </div>
+            <div style="display:flex;gap:14px;margin-top:8px;font-size:10px;color:var(--text-dim);flex-wrap:wrap;">
+              <span><span class="gantt-legend-box" style="background:rgba(124,111,247,0.15);"></span> In range</span>
+              <span><span class="gantt-legend-box" style="background:rgba(52,211,153,0.25);"></span> All done</span>
+              <span>Bar height = cumulative %</span>
+              <span style="display:flex;align-items:center;gap:3px;"><span style="color:var(--red);font-size:11px;">◆</span> Deadline</span>
+            </div>
+          </div>`;
+        })()}
+
         <!-- Calendar Month Picker -->
         <div class="roadmap-cal-header">
           <button class="roadmap-cal-btn" onclick="App.calYear(-1)">&#9664;</button>
@@ -1362,111 +1582,6 @@ const Views = {
           }).join('')}
         </div>
 
-        <!-- Allocation Card -->
-        <div class="card">
-          ${(() => {
-            const total = Object.values(curAlloc).reduce((a,b) => a + (b||0), 0);
-            return `
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-              <div class="strat-section-label" style="margin-bottom:0;">Time Allocation — ${mLabel}</div>
-              <span style="font-size:12px; font-weight:700; color:${total===100?'var(--green)':'var(--accent)'};">${total}%</span>
-            </div>
-            <div class="strat-alloc-bar" style="margin-bottom:14px;">${allocBar(curAlloc)}</div>
-            ${allocProjects.length === 0 ? `<div style="font-size:12px;color:var(--text-dim);">Add projects in Settings to set allocation per project.</div>` :
-            allocProjects.map(proj => `
-              <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
-                <span style="font-size:12px; min-width:120px; display:flex; align-items:center; gap:6px; color:var(--text-dim); flex-shrink:0;">
-                  <span style="width:8px; height:8px; border-radius:50%; background:${proj.color||'var(--accent)'}; display:inline-block; flex-shrink:0;"></span>
-                  ${escapeHTML(proj.icon||'📌')} ${escapeHTML(proj.name)}
-                </span>
-                <input type="range" min="0" max="100" value="${curAlloc[proj.id]||0}"
-                  oninput="App.liveAllocVal('${month}','${proj.id}',+this.value)"
-                  onchange="App.saveStratAlloc('${month}','${proj.id}',+this.value)"
-                  style="flex:1; accent-color:${proj.color||'var(--accent)'}; cursor:pointer; height:4px;">
-                <span id="alloc-val-${month}-${proj.id}" style="font-size:13px; font-weight:700; min-width:36px; text-align:right; color:${proj.color||'var(--accent)'};">${curAlloc[proj.id]||0}%</span>
-              </div>
-            `).join('')}
-            ${allocProjects.length > 0 && total !== 100 ? `<div style="font-size:11px; color:var(--accent); margin-top:2px; text-align:right;">⚠ Total should equal 100%</div>` : ''}
-            `;
-          })()}
-        </div>
-
-        <!-- Milestones Card -->
-        <div class="card">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-            <div class="strat-section-label" style="margin-bottom:0;">Milestones \u2014 ${mLabel} (${monthDone}/${curMs.length})</div>
-            <button class="btn btn-primary btn-sm" onclick="App.showStrategyAddForm()">+ Add</button>
-          </div>
-
-          <div id="strat-add-form" style="display:none; margin-bottom:16px; padding:14px; background:var(--bg-input); border-radius:8px;">
-            <input type="text" id="strat-ms-text" placeholder="What needs to happen?">
-            <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
-              <input type="text" id="strat-ms-stream" list="strat-ms-stream-list"
-                placeholder="Type any project name (or pick one)"
-                style="flex:2; min-width:140px;">
-              <datalist id="strat-ms-stream-list">
-                ${(() => {
-                  const seen = new Set();
-                  const opts = [];
-                  for (const p of (s.projects||[])) {
-                    if (!seen.has(p.name)) { seen.add(p.name); opts.push(`<option value="${p.name}">`); }
-                  }
-                  for (const [k,st] of Object.entries(STREAMS)) {
-                    if (!seen.has(st.name)) { seen.add(st.name); opts.push(`<option value="${st.name}">`); }
-                  }
-                  return opts.join('');
-                })()}
-              </datalist>
-              <select id="strat-ms-priority" style="flex:1; min-width:100px;">
-                <option value="critical">Critical</option>
-                <option value="high" selected>High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-              <button class="btn btn-primary btn-sm" onclick="App.addStrategyMilestone()">Add</button>
-            </div>
-          </div>
-
-          ${curMs.length === 0 ? `
-            <div class="empty-state" style="padding:24px;">
-              <div class="empty-text">No milestones for ${mLabel}. Add one above.</div>
-            </div>
-          ` : `
-            <div class="item-list">
-              ${curMs.map((m, idx) => {
-                // Resolve stream: check projects first, then STREAMS by key, then STREAMS by name, then plain label
-                const projMatch = (s.projects||[]).find(p => p.name === m.stream || p.id === m.stream);
-                const streamKey = Object.keys(STREAMS).find(k => STREAMS[k].name === m.stream || k === m.stream);
-                const st = projMatch
-                  ? { icon: projMatch.icon, name: projMatch.name, color: projMatch.color }
-                  : streamKey
-                    ? STREAMS[streamKey]
-                    : m.stream
-                      ? { icon: '📌', name: m.stream, color: 'var(--text-dim)' }
-                      : { icon: '📌', name: 'General', color: 'var(--text-dim)' };
-                return `
-                  <div class="item strat-milestone ${m.done ? 'strat-done' : ''}" draggable="true"
-                    ondragstart="App.onMilestoneDragStart(event, '${month}', ${idx})"
-                    ondragover="event.preventDefault(); this.classList.add('drag-over')"
-                    ondragleave="this.classList.remove('drag-over')"
-                    ondrop="this.classList.remove('drag-over'); App.onMilestoneDrop(event, '${month}', ${idx})">
-                    <div class="item-check ${m.done ? 'done' : ''}" style="border-color:${m.done ? '' : st.color + '60'};"
-                      onclick="App.toggleStrategyMilestone('${month}', ${idx})"></div>
-                    <div class="item-body">
-                      <div class="item-title ${m.done ? 'done' : ''}">${escapeHTML(m.text)}</div>
-                      <div class="item-meta">
-                        ${m.stream ? `<span style="color:${st.color}; font-weight:600;">${st.icon} ${escapeHTML(st.name)}</span>` : ''}
-                        ${priorityBadge(m.priority)}
-                      </div>
-                    </div>
-                    <button class="item-delete" onclick="App.deleteStrategyMilestone('${month}', ${idx})">&times;</button>
-                  </div>
-                `;
-              }).join('')}
-            </div>
-          `}
-        </div>
-
         <!-- Notes -->
         <div class="card">
           <div class="strat-section-label">Notes \u2014 ${mLabel}</div>
@@ -1475,128 +1590,125 @@ const Views = {
             rows="3" style="min-height:70px;">${escapeHTML(s.notes[month] || '')}</textarea>
         </div>
 
-        <!-- Full Timeline -->
-        <div class="card">
-          <div class="strat-section-label">Full Timeline</div>
-          ${roadmapMonths.map(m => `
-            <div class="strat-timeline-row" onclick="App.setStrategyMonth('${m.key}')" style="cursor:pointer;">
-              <span class="strat-timeline-label ${month === m.key ? 'active' : ''} ${m.key === curMonthKey() ? 'strat-timeline-cur' : ''}">${m.label}</span>
-              <div class="strat-alloc-bar" style="flex:1; height:20px;">${allocBar(s.allocations[m.key] || {})}</div>
-            </div>
-          `).join('')}
-        </div>
-      `;
-    } else if (tab === 'settings') {
-      const examDateVal = s.examDate || '2026-11-01';
-      const examPreview = new Date(examDateVal).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-      const userSched = s.schedule || WEEKLY_TEMPLATE;
-
-      tabContent = `
-        <!-- Projects -->
-        <div class="card">
-          <div class="strat-section-label">Projects &amp; Deadlines</div>
-          <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
-            ${(s.projects || []).map((proj, pIdx) => `
-              <div style="display:flex; align-items:center; gap:8px; padding:8px; background:var(--bg-input); border-radius:8px;">
-                <input type="text" value="${escapeHTML(proj.icon || '')}" placeholder="🎯"
-                  style="width:36px; text-align:center; background:transparent; border:1px solid var(--border); border-radius:6px; color:var(--text); padding:4px;"
-                  onchange="App.updateProject(${pIdx}, 'icon', this.value)">
-                <input type="text" value="${escapeHTML(proj.name)}" placeholder="Project name"
-                  style="flex:1; background:transparent; border:1px solid var(--border); border-radius:6px; color:var(--text); padding:4px 8px; font-size:13px;"
-                  onchange="App.updateProject(${pIdx}, 'name', this.value)">
-                <input type="date" value="${proj.deadline || ''}"
-                  class="strat-settings-input" style="width:140px;"
-                  onchange="App.updateProject(${pIdx}, 'deadline', this.value)">
-                <input type="color" value="${proj.color || '#7c6ff7'}"
-                  style="width:32px; height:32px; border:none; background:none; cursor:pointer; border-radius:6px;"
-                  onchange="App.updateProject(${pIdx}, 'color', this.value)">
-                ${(s.projects || []).length > 1 ? `<button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="App.deleteProject('${proj.id}')">&#10005;</button>` : ''}
+        <!-- Project activity log for selected month -->
+        ${(() => {
+          const reviewedThisMonth = [];
+          for (const cl of (data.checklists || [])) {
+            const monthItems = [];
+            for (const sec of (cl.sections || [])) {
+              for (const item of (sec.items || [])) {
+                if ((item.revisions || []).some(r => (r.date || '').slice(0, 7) === month)) {
+                  monthItems.push({ item: item.text, section: sec.name });
+                }
+              }
+            }
+            if (monthItems.length) reviewedThisMonth.push({ project: cl.name, icon: cl.icon || '📋', color: cl.color || 'var(--accent)', items: monthItems });
+          }
+          if (!reviewedThisMonth.length) return '';
+          return `<div class="card">
+            <div class="strat-section-label">Project Activity \u2014 ${mLabel}</div>
+            ${reviewedThisMonth.map(p => `
+              <div style="margin-bottom:12px;">
+                <div style="font-size:12px; font-weight:700; color:${p.color}; margin-bottom:4px;">${p.icon} ${escapeHTML(p.project)} <span style="font-weight:400; color:var(--text-dim);">(${p.items.length} item${p.items.length!==1?'s':''})</span></div>
+                ${p.items.map(i => `<div style="font-size:12px; color:var(--text-dim); padding:2px 0 2px 12px; border-left:2px solid ${p.color}40; margin-bottom:2px;">${escapeHTML(i.item)}</div>`).join('')}
               </div>
             `).join('')}
-          </div>
-          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-            <input type="text" id="new-proj-icon" placeholder="🎯" style="width:36px; text-align:center; padding:4px;" class="strat-settings-input">
-            <input type="text" id="new-proj-name" placeholder="Project name" style="flex:1; min-width:120px;" class="strat-settings-input">
-            <input type="date" id="new-proj-deadline" class="strat-settings-input" style="width:140px;">
-            <input type="color" id="new-proj-color" value="#7c6ff7" style="width:32px; height:32px; border:none; background:none; cursor:pointer; border-radius:6px;">
-            <button class="btn btn-primary btn-sm" onclick="App.addProject()">+ Add</button>
-          </div>
-        </div>
+          </div>`;
+        })()}
 
-        <!-- Schedule -->
+        <!-- Goals -->
         <div class="card">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-            <div class="strat-section-label" style="margin:0;">Daily Schedule</div>
-            <div style="display:flex; gap:6px;">
-              <button class="btn btn-ghost btn-sm" onclick="App.resetSchedule()">Reset Default</button>
-              <button class="btn btn-primary btn-sm" onclick="App.saveSchedule()">Save</button>
-            </div>
-          </div>
-          <div id="schedule-editor">
-            ${userSched.map((slot, i) => `
-              <div class="strat-settings-row" data-slot="${i}" draggable="true"
-                ondragstart="App.onScheduleDragStart(event, ${i})"
-                ondragover="event.preventDefault(); this.classList.add('drag-over')"
-                ondragleave="this.classList.remove('drag-over')"
-                ondrop="this.classList.remove('drag-over'); App.onScheduleDrop(event, ${i})">
-                <span class="drag-handle">&#9776;</span>
-                <input type="text" class="strat-settings-input sched-time" value="${escapeHTML(slot.time)}" placeholder="Time" style="width:100px;">
-                <input type="text" class="strat-settings-input sched-activity" value="${escapeHTML(slot.activity)}" placeholder="Activity" style="flex:1;">
-                <select class="strat-settings-select sched-stream">
-                  <option value="" ${!slot.stream ? 'selected' : ''}>None</option>
-                  <option value="exam" ${slot.stream === 'exam' ? 'selected' : ''}>Exam</option>
-                  <option value="flex" ${slot.stream === 'flex' ? 'selected' : ''}>Flex</option>
-                </select>
-                <button class="btn btn-ghost btn-sm" onclick="App.removeScheduleSlot(${i})" title="Remove">&times;</button>
-              </div>
-            `).join('')}
-          </div>
-          <button class="btn btn-ghost btn-sm" onclick="App.addScheduleSlot()" style="margin-top:8px;">+ Add Slot</button>
-        </div>
-
-        <!-- Weekly Schedule View -->
-        <div class="card">
-          <div class="strat-section-label">Weekly Schedule</div>
-          ${(s.schedule || WEEKLY_TEMPLATE).map(slot => {
-            const color = slot.stream === 'exam' ? STREAMS.exam.color : slot.stream === 'flex' ? 'var(--accent)' : 'var(--text-dim)';
-            return `<div class="strat-schedule-row">
-              <span class="strat-time" style="color:${color};">${slot.time}</span>
-              <span class="strat-activity">${escapeHTML(slot.activity)}</span>
-            </div>`;
-          }).join('')}
-        </div>
-
-        <!-- Task Source -->
-        <div class="card">
-          <div class="strat-section-label">Task Source</div>
-          <div style="margin-bottom:8px;">
-            <select class="strat-settings-input" style="width:100%;" onchange="App.setTaskSource(this.value)">
-              <option value="both" ${(data.taskSource||'both')==='both'?'selected':''}>Both (Nexus tasks + Vault tasks)</option>
-              <option value="nexus" ${data.taskSource==='nexus'?'selected':''}>Nexus tasks only (no vault needed)</option>
-              <option value="vault" ${data.taskSource==='vault'?'selected':''}>Vault tasks only</option>
+          <div class="strat-section-label">Goals</div>
+          <div class="input-row" style="margin-bottom:12px;">
+            <input type="text" id="goal-input" placeholder="What's your goal?" style="flex:1;"
+              onkeydown="if(event.key==='Enter')App.addGoal()">
+            <input type="text" id="goal-target" placeholder="Target" style="width:80px;"
+              onkeydown="if(event.key==='Enter')App.addGoal()">
+            <select id="goal-frequency" style="background:var(--bg-input); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:4px 8px; font-size:12px; width:90px;">
+              <option value="once">Once</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
             </select>
+            <button class="btn btn-primary btn-sm" onclick="App.addGoal()">+ Add</button>
           </div>
-          <div style="font-size:11px; color:var(--text-dim);">Use "Nexus only" if you don't have an Obsidian vault. <span style="color:var(--green);">Saved automatically.</span></div>
+          ${(() => {
+            const activeGoals = data.goals.filter(g => !g.achieved && !g.gaveUp);
+            const achievedGoals = data.goals.filter(g => g.achieved);
+            const gaveUpGoals = data.goals.filter(g => g.gaveUp);
+            const prompt = App._goalPrompt;
+            return `
+              ${activeGoals.length ? activeGoals.map(g => {
+                const pct = g.target > 0 ? Math.min(100, Math.round((g.current / g.target) * 100)) : 0;
+                const freqBadge = g.frequency && g.frequency !== 'once' ? `<span style="font-size:10px;color:var(--text-dim);background:var(--bg-input);border-radius:4px;padding:1px 5px;margin-left:4px;">${g.frequency}</span>` : '';
+                const isArchive = prompt?.id === g.id && prompt?.type === 'archive';
+                const isGiveUp = prompt?.id === g.id && prompt?.type === 'giveup';
+                const barColor = pct >= 100 ? 'var(--green)' : 'var(--accent)';
+                return `<div style="margin-bottom:14px; padding:10px; background:var(--bg-input); border-radius:8px; ${pct >= 100 ? 'border-left:3px solid var(--green);' : ''}">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <span style="font-size:13px; font-weight:600;">${escapeHTML(g.text)}${freqBadge}</span>
+                    <span style="font-size:12px; font-weight:700; color:${barColor};">${g.current}/${g.target} (${pct}%)</span>
+                  </div>
+                  <div class="progress-bar">
+                    <div class="progress-fill" style="width:${pct}%; background:${barColor};"></div>
+                  </div>
+                  <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+                    <button class="btn btn-ghost btn-sm" onclick="App.incrementGoal('${g.id}', -1)">-1</button>
+                    <button class="btn btn-primary btn-sm" onclick="App.incrementGoal('${g.id}', 1)">+1</button>
+                    <button class="btn btn-ghost btn-sm" onclick="App.incrementGoal('${g.id}', 5)">+5</button>
+                    <button class="btn btn-ghost btn-sm" onclick="App.incrementGoal('${g.id}', 10)">+10</button>
+                    <div style="flex:1;"></div>
+                    ${pct >= 100 ? `<button class="btn btn-sm" style="background:var(--green);color:#fff;font-size:11px;" onclick="App.showGoalPrompt('${g.id}','archive')">🏆 Archive</button>` : ''}
+                    <button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="App.showGoalPrompt('${g.id}','giveup')">Give Up</button>
+                  </div>
+                  ${isArchive ? `
+                    <div style="margin-top:10px; padding:10px; background:var(--bg-card); border-radius:6px; border-left:2px solid var(--green);">
+                      <div style="font-size:12px; font-weight:600; color:var(--green); margin-bottom:4px;">🎉 What made you succeed?</div>
+                      <textarea id="goal-reason-input" placeholder="Reflect on your win..." style="width:100%; min-height:52px; background:var(--bg-input); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:6px; font-size:12px; resize:vertical; box-sizing:border-box;"></textarea>
+                      <div style="display:flex; gap:6px; margin-top:6px; justify-content:flex-end;">
+                        <button class="btn btn-ghost btn-sm" onclick="App._goalPrompt=null;App.render()">Cancel</button>
+                        <button class="btn btn-sm" style="background:var(--green);color:#fff;" onclick="App.archiveGoal('${g.id}')">Archive 🏆</button>
+                      </div>
+                    </div>
+                  ` : ''}
+                  ${isGiveUp ? `
+                    <div style="margin-top:10px; padding:10px; background:var(--bg-card); border-radius:6px; border-left:2px solid var(--red);">
+                      <div style="font-size:12px; font-weight:600; color:var(--text); margin-bottom:4px;">What held you back?</div>
+                      <textarea id="goal-reason-input" placeholder="It's okay — every experience teaches something." style="width:100%; min-height:52px; background:var(--bg-input); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:6px; font-size:12px; resize:vertical; box-sizing:border-box;"></textarea>
+                      <div style="display:flex; gap:6px; margin-top:6px; justify-content:flex-end;">
+                        <button class="btn btn-ghost btn-sm" onclick="App._goalPrompt=null;App.render()">Cancel</button>
+                        <button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="App.giveUpGoal('${g.id}')">Give Up</button>
+                      </div>
+                    </div>
+                  ` : ''}
+                </div>`;
+              }).join('') : '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">No active goals — add one above.</div>'}
+              ${achievedGoals.length ? `
+                <div style="font-size:11px;font-weight:700;color:#a78bfa;margin-top:10px;margin-bottom:6px;">🏆 Achieved</div>
+                ${achievedGoals.map(g => `
+                  <div style="padding:6px 8px;margin-bottom:4px;background:var(--bg-input);border-radius:6px;border-left:2px solid #a78bfa;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                      <span style="font-size:12px;color:#a78bfa;">✓ ${escapeHTML(g.text)}</span>
+                      <span style="font-size:10px;color:var(--text-dim);">${g.achievedDate || ''}</span>
+                    </div>
+                    ${g.achievedReason ? `<div style="font-size:11px;color:var(--text-dim);margin-top:2px;font-style:italic;">"${escapeHTML(g.achievedReason)}"</div>` : ''}
+                  </div>`).join('')}
+              ` : ''}
+              ${gaveUpGoals.length ? `
+                <div style="font-size:11px;font-weight:700;color:var(--text-dim);margin-top:10px;margin-bottom:6px;">Given Up</div>
+                ${gaveUpGoals.map(g => `
+                  <div style="padding:6px 8px;margin-bottom:4px;background:var(--bg-input);border-radius:6px;opacity:0.6;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                      <span style="font-size:12px;color:var(--text-dim);text-decoration:line-through;">${escapeHTML(g.text)}</span>
+                      <span style="font-size:10px;color:var(--text-dim);">${g.gaveUpDate || ''}</span>
+                    </div>
+                    ${g.gaveUpReason ? `<div style="font-size:11px;color:var(--text-dim);margin-top:2px;font-style:italic;">"${escapeHTML(g.gaveUpReason)}"</div>` : ''}
+                  </div>`).join('')}
+              ` : ''}
+            `;
+          })()}
         </div>
 
-        <!-- Vault Connection -->
-        <div class="card">
-          <div class="strat-section-label">Vault Connection</div>
-          <div style="font-size:13px; color:var(--text-dim); margin-bottom:8px;">
-            ${App.vaultAvailable ? `<span style="color:var(--green);">&#10003; Connected</span> — ${escapeHTML((App.serverConfig || {}).vaultPath || '')}`
-              : 'Not connected. Connect your Obsidian vault to enable journaling sync and task sync.'}
-          </div>
-          <div style="display:flex; gap:8px; margin-bottom:8px;">
-            <input type="text" id="settings-vault-path" class="strat-settings-input" placeholder="Vault folder path (e.g. D:/Obsidian/My Vault)" style="flex:1;" value="${escapeHTML((App.serverConfig || {}).vaultPath || '')}">
-            <button class="btn btn-primary btn-sm" onclick="App.updateVaultPath()">Save</button>
-          </div>
-          <div style="font-size:12px; color:var(--text-dim); margin-bottom:4px;">Daily journal / rapid log filename:</div>
-          <div style="display:flex; gap:8px;">
-            <input type="text" id="settings-rapid-log" class="strat-settings-input" placeholder="e.g. Daily Notes.md" style="flex:1;" value="${escapeHTML((App.serverConfig || {}).rapidLogFile || '02 Rapid logging.md')}">
-            <button class="btn btn-primary btn-sm" onclick="App.saveRapidLogFile()">Save</button>
-          </div>
-          <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">The markdown file used for daily journaling. Each user may have a different filename.</div>
-        </div>
       `;
     } else if (tab === 'projects') {
       const checklists = data.checklists || [];
@@ -1627,15 +1739,15 @@ const Views = {
         <!-- Project pills nav -->
         <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:20px;">
           ${checklists.map(cl => {
-            const linked = stratProjects.find(p => p.id === cl.projectId);
-            const allItems = cl.sections.flatMap(sec => sec.items);
+            const clPillColor = cl.color || 'var(--accent)';
+            const allItems = (cl.sections||[]).flatMap(sec => sec.items||[]);
             const revDone = allItems.filter(it => (it.revisions||[]).length > 0 || it.done).length;
             const isActive = cl.id === activeId;
             return `<button
               class="strat-month-pill ${isActive ? 'active' : ''}"
               onclick="App.setStrategyProject('${cl.id}')"
-              style="${isActive ? `border-color:${linked?.color || 'var(--accent)'};` : ''}">
-              ${escapeHTML(linked?.icon || cl.icon || '📋')} ${escapeHTML(cl.name)}
+              style="${isActive ? `border-color:${clPillColor}; color:${clPillColor};` : ''}">
+              ${escapeHTML(cl.icon || '📋')} ${escapeHTML(cl.name)}
               <span style="font-size:10px; opacity:0.7; margin-left:4px;">${revDone}/${allItems.length}</span>
             </button>`;
           }).join('')}
@@ -1675,16 +1787,17 @@ const Views = {
           const allItems = activeCL.sections.flatMap(sec => sec.items);
           const revDone = allItems.filter(it => (it.revisions||[]).length > 0 || it.done).length;
           const pct = allItems.length ? Math.round(revDone / allItems.length * 100) : 0;
-          const linkedProj = stratProjects.find(p => p.id === activeCL.projectId);
-          const daysLeft = linkedProj ? Math.max(0, Math.ceil((new Date(linkedProj.deadline) - new Date()) / 864e5)) : null;
-          const captureTag = activeCL.captureTag || '#study';
+          const clColor = activeCL.color || '#7c6ff7';
+          const daysLeft = activeCL.deadline ? Math.max(0, Math.ceil((new Date(activeCL.deadline) - new Date()) / 864e5)) : null;
+          const defaultTag = '#' + (activeCL.name || 'study').toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+          const captureTag = activeCL.captureTag || defaultTag;
           const isEditingProj = App._editingProject === activeCL.id;
 
           return `
             <!-- Project header card -->
             <div class="card" style="margin-bottom:16px;">
               <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
-                <div style="flex:1;">
+                <div style="flex:1; min-width:0;">
                   ${isEditingProj ? `
                     <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
                       <input id="edit-proj-icon" value="${escapeHTML(activeCL.icon||'📋')}" style="width:40px; text-align:center; padding:4px;" class="strat-settings-input">
@@ -1694,27 +1807,32 @@ const Views = {
                       <button class="btn btn-ghost btn-sm" onclick="App._editingProject=null; App.render();">Cancel</button>
                     </div>
                   ` : `
-                    <div style="display:flex; align-items:center; gap:8px;">
-                      <span style="font-size:16px; font-weight:700;">${escapeHTML(activeCL.icon||linkedProj?.icon||'📋')} ${escapeHTML(activeCL.name)}</span>
-                      <button onclick="App.startEditProject('${activeCL.id}')" title="Rename project" style="background:none; border:none; cursor:pointer; color:var(--text-dim); font-size:13px; opacity:0.6;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">✎</button>
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                      <span style="font-size:20px;">${escapeHTML(activeCL.icon||'📋')}</span>
+                      <span style="font-size:16px; font-weight:700; color:var(--text); border-bottom:2px solid ${clColor}; padding-bottom:1px;">${escapeHTML(activeCL.name)}</span>
+                      <button onclick="App.startEditProject('${activeCL.id}')" title="Rename" style="background:none; border:none; cursor:pointer; color:var(--text-dim); font-size:13px; opacity:0.6;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">✎</button>
                     </div>
-                    <div style="font-size:11px; color:var(--text-dim); margin-top:3px;">
-                      ${linkedProj ? `<span style="color:${linkedProj.color}; font-weight:600;">${escapeHTML(linkedProj.name)}</span> · ${daysLeft} days left · ` : ''}
-                      ${revDone}/${allItems.length} reviewed
+                    <div style="display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap;">
+                      <input type="date" value="${activeCL.deadline||''}" class="strat-settings-input" style="font-size:11px; padding:3px 6px; width:140px;"
+                        title="Deadline" onchange="App.updateChecklistMeta('${activeCL.id}', 'deadline', this.value)">
+                      <input type="color" value="${clColor}" style="width:28px; height:28px; border:none; background:none; cursor:pointer; border-radius:6px;" title="Color"
+                        onchange="App.updateChecklistMeta('${activeCL.id}', 'color', this.value)">
+                      ${daysLeft !== null ? `<span style="font-size:11px; color:var(--text-dim);">${daysLeft} days left</span>` : ''}
+                      <span style="font-size:11px; color:var(--text-dim);">${revDone}/${allItems.length} reviewed</span>
                     </div>
+                    <textarea placeholder="Add a description…" rows="2"
+                      style="width:100%; margin-top:8px; font-size:12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:6px 8px; resize:vertical; box-sizing:border-box;"
+                      onchange="App.updateChecklistMeta('${activeCL.id}', 'description', this.value)">${escapeHTML(activeCL.description||'')}</textarea>
                   `}
                 </div>
-                <div style="display:flex; gap:6px; align-items:center;">
-                  <select class="strat-settings-input" style="font-size:11px; padding:3px 6px;" onchange="App.linkChecklist('${activeCL.id}', this.value)">
-                    <option value="">No deadline</option>
-                    ${stratProjects.map(p => `<option value="${p.id}" ${activeCL.projectId === p.id ? 'selected' : ''}>${escapeHTML(p.icon||'')} ${escapeHTML(p.name)}</option>`).join('')}
-                  </select>
-                  ${App.vaultAvailable && !activeCL.vaultFile ? `<button class="btn btn-ghost btn-sm" style="color:var(--accent); font-size:11px;" onclick="App.createProjectVaultFile('${activeCL.id}')" title="Create vault MD file for this project">📁 Link vault</button>` : ''}
+                <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                  ${App.vaultAvailable ? `<span style="font-size:10px; color:var(--green); opacity:0.7;" title="Auto-syncs to vault when items are checked">&#8593; vault${activeCL.lastVaultSync ? ' · ' + activeCL.lastVaultSync : ''}</span>` : ''}
+                  ${App.vaultAvailable && !activeCL.vaultFile ? `<button class="btn btn-ghost btn-sm" style="color:var(--accent); font-size:11px;" onclick="App.createProjectVaultFile('${activeCL.id}')" title="Create vault MD file">📁 Link vault</button>` : ''}
                   ${activeCL.vaultFile ? `<span style="font-size:10px; color:var(--green); opacity:0.7;" title="${escapeHTML(activeCL.vaultFile)}">📁 linked</span>` : ''}
                   <button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="App.deleteChecklist('${activeCL.id}')">🗑</button>
                 </div>
               </div>
-              <div class="progress-bar"><div class="progress-fill" style="width:${pct}%; background:var(--green);"></div></div>
+              <div class="progress-bar"><div class="progress-fill" style="width:${pct}%; background:${clColor};"></div></div>
               <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">${pct}% reviewed</div>
             </div>
 
@@ -1835,7 +1953,7 @@ const Views = {
 
     return `
       <h1 class="view-title">Strategy</h1>
-      <p class="view-subtitle">Exam \u00B7 Manuscript \u00B7 Scoliox \u2014 Your integrated plan</p>
+      <p class="view-subtitle">${(data.checklists||[]).map(cl=>escapeHTML(cl.name)).join(' \u00B7 ') || 'Your integrated plan'}</p>
 
       <!-- Stat Cards — one per project + milestones -->
       <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
@@ -1861,7 +1979,6 @@ const Views = {
       <div class="strat-tabs">
         <span class="strat-tab ${tab==='roadmap'?'active':''}" onclick="App.setStrategyTab('roadmap')">Roadmap</span>
         <span class="strat-tab ${tab==='projects'?'active':''}" onclick="App.setStrategyTab('projects')">Projects</span>
-        <span class="strat-tab ${tab==='settings'?'active':''}" onclick="App.setStrategyTab('settings')">Settings</span>
       </div>
 
       ${tabContent}
@@ -2653,7 +2770,7 @@ const Views = {
 
     // Build data maps for the month
     const journalMap = {};
-    for (const j of data.journal) { journalMap[j.date] = true; }
+    for (const j of data.journal) { journalMap[j.date] = j; }
     // Vault daily entries
     const vaultJournalMap = {};
     for (const e of (App.vaultDailyEntries || [])) { if (e.date) vaultJournalMap[e.date] = e; }
@@ -2697,7 +2814,16 @@ const Views = {
       if (Object.values(log).some(v => v)) activityDays.add(date);
     }
 
-    // Current streak
+    // Goal achievements map: date → array of achieved goals
+    const goalAchievementMap = {};
+    for (const g of (data.goals || [])) {
+      if (g.achieved && g.achievedDate) {
+        if (!goalAchievementMap[g.achievedDate]) goalAchievementMap[g.achievedDate] = [];
+        goalAchievementMap[g.achievedDate].push(g);
+      }
+    }
+
+    // Current streak (all activity)
     let currentStreak = 0;
     const checkDate = new Date();
     for (let i = 0; i < 365; i++) {
@@ -2720,6 +2846,35 @@ const Views = {
       longestStreak = Math.max(longestStreak, tempStreak);
     }
 
+    // Journal streak: consecutive days with in-app journal OR vault daily entry
+    // Grace-for-today: if today has no entry, start counting from yesterday
+    let journalStreak = 0;
+    { const d = new Date();
+      const todayDk = d.toISOString().slice(0, 10);
+      if (!journalMap[todayDk] && !vaultJournalMap[todayDk]) d.setDate(d.getDate() - 1);
+      for (let i = 0; i < 365; i++) {
+        const dk = d.toISOString().slice(0, 10);
+        if (journalMap[dk] || vaultJournalMap[dk]) { journalStreak++; d.setDate(d.getDate() - 1); }
+        else break;
+      }
+    }
+
+    // Habit streak: consecutive days with ≥1 schedule slot checked
+    // Grace-for-today: if today has no habit checked, start from yesterday
+    const calUserSched = data.strategy?.schedule || [];
+    let habitStreak = 0;
+    { const d = new Date();
+      const todayDk = d.toISOString().slice(0, 10);
+      const todayLog = (data.scheduleLog || {})[todayDk] || {};
+      if (!calUserSched.some((_, idx) => todayLog['slot-' + idx])) d.setDate(d.getDate() - 1);
+      for (let i = 0; i < 365; i++) {
+        const dk = d.toISOString().slice(0, 10);
+        const dayLog = (data.scheduleLog || {})[dk] || {};
+        if (calUserSched.some((_, idx) => dayLog['slot-' + idx])) { habitStreak++; d.setDate(d.getDate() - 1); }
+        else break;
+      }
+    }
+
     // Month study total
     const monthPrefix = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}`;
     const monthStudy = (data.timer?.sessions || [])
@@ -2740,11 +2895,15 @@ const Views = {
       const isActive = activityDays.has(dateStr);
       const activityCount = ((hasJournal || hasVaultJournal) ? 1 : 0) + (dueTasks.length + dueVaultTasks.length > 0 ? 1 : 0) + (studyMins > 0 ? 1 : 0) + (dayCaptures.length > 0 ? 1 : 0) + (isActive ? 1 : 0);
       const intensityClass = activityCount >= 4 ? 'cal-high' : activityCount >= 2 ? 'cal-med' : activityCount >= 1 ? 'cal-low' : '';
+      const daySchedLog = (data.scheduleLog || {})[dateStr] || {};
+      const hasHabit = (data.strategy?.schedule || []).some((_, hi) => daySchedLog['slot-' + hi]);
       const dots = [];
       if (hasVaultJournal || hasJournal) dots.push('var(--green)');
       if (dueTasks.length || dueVaultTasks.length) dots.push('var(--red)');
       if (studyMins > 0) dots.push('var(--accent)');
       if (dayCaptures.length > 0 && !dots.includes('var(--accent)')) dots.push('var(--amber)');
+      if (hasHabit) dots.push('#f472b6');
+      if (goalAchievementMap[dateStr]?.length) dots.push('#a78bfa');
 
       cells += `
         <div class="cal-cell ${isToday ? 'cal-today' : ''} ${intensityClass}" onclick="App._calSelected='${dateStr}'; App.render();">
@@ -2769,12 +2928,27 @@ const Views = {
 
       <!-- Streak Banner -->
       <div class="cal-streak-banner">
-        <div class="cal-streak-main">
-          <span class="cal-streak-fire">&#128293;</span>
-          <span class="cal-streak-count">${currentStreak}</span>
-          <span class="cal-streak-label">day streak</span>
-          ${currentStreak >= 30 ? '<span class="cal-milestone">&#127942; 30+ days!</span>' :
-            currentStreak >= 7 ? '<span class="cal-milestone">&#11088; 7+ days!</span>' : ''}
+        <div style="display:flex; gap:32px; align-items:center; flex-wrap:wrap;">
+          <div>
+            <div style="font-size:10px; color:var(--text-dim); margin-bottom:2px;">&#9312; Journal</div>
+            <div class="cal-streak-main">
+              <span class="cal-streak-fire">&#128211;</span>
+              <span class="cal-streak-count">${journalStreak}</span>
+              <span class="cal-streak-label">day streak</span>
+              ${journalStreak >= 30 ? '<span class="cal-milestone">&#127942; 30+</span>' :
+                journalStreak >= 7 ? '<span class="cal-milestone">&#11088; 7+</span>' : ''}
+            </div>
+          </div>
+          <div>
+            <div style="font-size:10px; color:var(--text-dim); margin-bottom:2px;">&#9313; Habits</div>
+            <div class="cal-streak-main">
+              <span class="cal-streak-fire">&#128293;</span>
+              <span class="cal-streak-count">${habitStreak}</span>
+              <span class="cal-streak-label">day streak</span>
+              ${habitStreak >= 30 ? '<span class="cal-milestone">&#127942; 30+</span>' :
+                habitStreak >= 7 ? '<span class="cal-milestone">&#11088; 7+</span>' : ''}
+            </div>
+          </div>
         </div>
         <div class="cal-streak-secondary">
           Longest: ${longestStreak} days &middot; This month: ${monthStudy >= 60 ? Math.floor(monthStudy / 60) + 'h ' + (monthStudy % 60) + 'm' : monthStudy + 'min'} study
@@ -2797,17 +2971,27 @@ const Views = {
           <span><span class="cal-dot" style="background:var(--red); display:inline-block;"></span> Tasks due</span>
           <span><span class="cal-dot" style="background:var(--accent); display:inline-block;"></span> Study</span>
           <span><span class="cal-dot" style="background:var(--amber); display:inline-block;"></span> Captures</span>
+          <span><span class="cal-dot" style="background:#f472b6; display:inline-block;"></span> Habits</span>
+          <span><span class="cal-dot" style="background:#a78bfa; display:inline-block;"></span> Achieved</span>
         </div>
       </div>
 
       <div class="card">
         <div class="strat-section-label" style="margin-bottom:10px;">${new Date(sel + 'T12:00:00').toLocaleDateString('en', { weekday:'long', month:'long', day:'numeric' })}</div>
-        ${(selVaultJournal || selJournal) ? `
+        ${selVaultJournal ? `
           <div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:10px; padding:8px; background:var(--bg-input); border-radius:8px; border-left:3px solid var(--green);">
             <span style="font-size:13px;">📓</span>
             <div style="flex:1;">
-              <div style="font-size:11px; font-weight:600; color:var(--green); margin-bottom:2px;">Journal</div>
-              ${selVaultJournal?.preview ? `<div style="font-size:12px; color:var(--text-dim); line-height:1.5;">${escapeHTML(selVaultJournal.preview.slice(0, 120))}${selVaultJournal.preview.length > 120 ? '…' : ''}</div>` : `<div style="font-size:12px; color:var(--text-dim);">Entry logged</div>`}
+              <div style="font-size:11px; font-weight:600; color:var(--green); margin-bottom:4px;">Vault Journal</div>
+              <div style="font-size:12px; color:var(--text-dim); line-height:1.6; white-space:pre-wrap;">${selVaultJournal.lines.filter(l => l.trim()).map(l => escapeHTML(l)).join('\n')}</div>
+            </div>
+          </div>
+        ` : selJournal ? `
+          <div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:10px; padding:8px; background:var(--bg-input); border-radius:8px; border-left:3px solid var(--green);">
+            <span style="font-size:13px;">📓</span>
+            <div style="flex:1;">
+              <div style="font-size:11px; font-weight:600; color:var(--green); margin-bottom:4px;">Journal</div>
+              ${selJournal.content ? `<div style="font-size:12px; color:var(--text-dim); line-height:1.6; white-space:pre-wrap;">${escapeHTML(selJournal.content)}</div>` : `<div style="font-size:12px; color:var(--text-dim);">Entry logged</div>`}
             </div>
           </div>
         ` : ''}
@@ -2834,12 +3018,62 @@ const Views = {
             <span style="font-size:13px;">⚡</span>
             <div style="flex:1;">
               <div style="font-size:11px; font-weight:600; color:var(--amber); margin-bottom:4px;">Captures (${selCaptures.length})</div>
-              ${selCaptures.slice(0, 4).map(c => `<div style="font-size:12px; color:var(--text-dim); padding:1px 0;">${escapeHTML(c.text.slice(0, 80))}${c.text.length > 80 ? '…' : ''}</div>`).join('')}
-              ${selCaptures.length > 4 ? `<div style="font-size:11px; color:var(--text-dim);">+${selCaptures.length - 4} more</div>` : ''}
+              ${selCaptures.map(c => `<div style="font-size:12px; color:var(--text-dim); padding:2px 0; border-bottom:1px solid var(--border); margin-bottom:2px;">${escapeHTML(c.text)}</div>`).join('')}
             </div>
           </div>
         ` : ''}
-        ${!selStudy && !selTasks.length && !selVaultTasks.length && !selJournal && !selVaultJournal && !selCaptures.length ? `<div style="font-size:13px; color:var(--text-dim); text-align:center; padding:12px 0;">No activity on this day</div>` : ''}
+        ${(() => {
+          const selSchedLog = (data.scheduleLog || {})[sel] || {};
+          const userSched = data.strategy?.schedule || [];
+          const checkedSlots = userSched.filter((_, i) => selSchedLog['slot-' + i]);
+          if (!userSched.length || !checkedSlots.length) return '';
+          const schedPct = Math.round(checkedSlots.length / userSched.length * 100);
+          return `<div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:10px; padding:8px; background:var(--bg-input); border-radius:8px; border-left:3px solid var(--accent);">
+            <span style="font-size:13px;">✅</span>
+            <div style="flex:1;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <div style="font-size:11px; font-weight:600; color:var(--accent);">Habits — ${checkedSlots.length}/${userSched.length} (${schedPct}%)</div>
+              </div>
+              <div class="progress-bar" style="height:4px; margin-bottom:6px;">
+                <div class="progress-fill" style="width:${schedPct}%; background:${schedPct===100?'var(--green)':'var(--accent)'};"></div>
+              </div>
+              ${checkedSlots.map(s => `<div style="font-size:12px; color:var(--text-dim); padding:1px 0;">✓ ${escapeHTML(s.time)} ${escapeHTML(s.activity)}</div>`).join('')}
+            </div>
+          </div>`;
+        })()}
+        ${(() => {
+          // Project items reviewed on this day
+          const reviewedItems = [];
+          for (const cl of (data.checklists || [])) {
+            for (const sec of (cl.sections || [])) {
+              for (const item of (sec.items || [])) {
+                if ((item.revisions || []).some(r => r.date === sel)) {
+                  reviewedItems.push({ project: cl.name, icon: cl.icon || '📋', color: cl.color || 'var(--accent)', item: item.text, section: sec.name });
+                }
+              }
+            }
+          }
+          if (!reviewedItems.length) return '';
+          return `<div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:10px; padding:8px; background:var(--bg-input); border-radius:8px; border-left:3px solid var(--accent);">
+            <span style="font-size:13px;">📚</span>
+            <div style="flex:1;">
+              <div style="font-size:11px; font-weight:600; color:var(--accent); margin-bottom:4px;">Reviewed (${reviewedItems.length})</div>
+              ${reviewedItems.map(r => `<div style="font-size:12px; color:var(--text-dim); padding:1px 0;"><span style="color:${r.color};">${r.icon} ${escapeHTML(r.project)}</span> — ${escapeHTML(r.item)}</div>`).join('')}
+            </div>
+          </div>`;
+        })()}
+        ${(() => {
+          const selAchievements = goalAchievementMap[sel] || [];
+          if (!selAchievements.length) return '';
+          return `<div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:10px; padding:8px; background:var(--bg-input); border-radius:8px; border-left:3px solid #a78bfa;">
+            <span style="font-size:13px;">🏆</span>
+            <div style="flex:1;">
+              <div style="font-size:11px; font-weight:600; color:#a78bfa; margin-bottom:4px;">Goal Achieved!</div>
+              ${selAchievements.map(g => `<div style="font-size:12px; color:var(--text-dim);">✓ ${escapeHTML(g.text)}</div>`).join('')}
+            </div>
+          </div>`;
+        })()}
+        ${!selStudy && !selTasks.length && !selVaultTasks.length && !selJournal && !selVaultJournal && !selCaptures.length && !(data.strategy?.schedule||[]).some((_,i) => ((data.scheduleLog||{})[sel]||{})['slot-'+i]) && !Object.values((data.checklists||[])).some(cl => (cl.sections||[]).some(sec => (sec.items||[]).some(item => (item.revisions||[]).some(r => r.date===sel)))) && !(goalAchievementMap[sel]?.length) ? `<div style="font-size:13px; color:var(--text-dim); text-align:center; padding:12px 0;">No activity on this day</div>` : ''}
       </div>
     `;
   },
@@ -2966,6 +3200,211 @@ const Views = {
         <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">The markdown file in your vault used for daily journaling. Each user may have a different filename.</div>
       </div>
     `;
+  },
+
+  // ─── Settings (standalone) ──────────────────
+  settings() {
+    const data = Store.get();
+    const theme = data.theme || 'dark';
+    const accentColor = data.accentColor || '#7c6ff7';
+    const fontSize = data.fontSize || 'medium';
+    const defaultView = data.defaultView || 'dashboard';
+    const hiddenNav = data.hiddenNavItems || [];
+
+    // All hideable nav items (dashboard + settings are always visible)
+    const navOptions = [
+      { view: 'today',     label: 'Today' },
+      { view: 'capture',   label: 'Capture' },
+      { view: 'tasks',     label: 'Tasks' },
+      { view: 'journal',   label: 'Journal' },
+      { view: 'vault',     label: 'Vault' },
+      { view: 'growth',    label: 'Growth' },
+      { view: 'calendar',  label: 'Calendar' },
+      { view: 'strategy',  label: 'Strategy' },
+      { view: 'shortcuts', label: 'Shortcuts' },
+    ];
+
+    return `
+      <h1 class="view-title">Settings</h1>
+      <p class="view-subtitle">App preferences and connections</p>
+
+      <!-- Profile -->
+      <div class="card">
+        <div class="strat-section-label">Profile</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+          <div>
+            <div style="font-size:13px; font-weight:600;">Your Name</div>
+            <div style="font-size:11px; color:var(--text-dim);">Personalises your dashboard greeting every day</div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input type="text" id="settings-username" class="strat-settings-input" placeholder="e.g. Alex" style="width:130px;" value="${escapeHTML(data.userName || '')}">
+            <button class="btn btn-primary btn-sm" onclick="App.saveUserName()">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Appearance -->
+      <div class="card">
+        <div class="strat-section-label">Appearance</div>
+        <div style="display:flex; flex-direction:column; gap:14px;">
+
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-size:13px; font-weight:600;">Theme</div>
+              <div style="font-size:11px; color:var(--text-dim);">Switch between dark and light mode</div>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="App.toggleTheme()" style="min-width:90px;">
+              ${theme === 'dark' ? '☀ Light mode' : '☾ Dark mode'}
+            </button>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-size:13px; font-weight:600;">Accent Color</div>
+              <div style="font-size:11px; color:var(--text-dim);">Primary highlight color throughout the app</div>
+            </div>
+            <input type="color" value="${accentColor}" style="width:36px; height:36px; border:none; background:none; cursor:pointer; border-radius:8px;"
+              onchange="App.setAccentColor(this.value)">
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-size:13px; font-weight:600;">Font Size</div>
+              <div style="font-size:11px; color:var(--text-dim);">Base text size across the app</div>
+            </div>
+            <select class="strat-settings-input" style="width:110px;" onchange="App.setFontSize(this.value)">
+              <option value="small" ${fontSize==='small'?'selected':''}>Small (13px)</option>
+              <option value="medium" ${fontSize==='medium'?'selected':''}>Medium (15px)</option>
+              <option value="large" ${fontSize==='large'?'selected':''}>Large (17px)</option>
+            </select>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-size:13px; font-weight:600;">Default View</div>
+              <div style="font-size:11px; color:var(--text-dim);">Which view opens when you launch the app</div>
+            </div>
+            <select class="strat-settings-input" style="width:120px;" onchange="App.setDefaultView(this.value)">
+              <option value="dashboard" ${defaultView==='dashboard'?'selected':''}>Dashboard</option>
+              <option value="today" ${defaultView==='today'?'selected':''}>Today</option>
+              <option value="tasks" ${defaultView==='tasks'?'selected':''}>Tasks</option>
+              <option value="strategy" ${defaultView==='strategy'?'selected':''}>Strategy</option>
+              <option value="journal" ${defaultView==='journal'?'selected':''}>Journal</option>
+            </select>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Navigation -->
+      <div class="card">
+        <div class="strat-section-label">Navigation</div>
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:12px;">Show or hide items in the sidebar. Dashboard and Settings are always visible.</div>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          ${navOptions.map(opt => {
+            const isHidden = hiddenNav.includes(opt.view);
+            return `
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:13px; ${isHidden ? 'color:var(--text-dim);text-decoration:line-through;' : ''}">${opt.label}</span>
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--text-dim);">
+                <span>${isHidden ? 'Hidden' : 'Visible'}</span>
+                <div class="settings-toggle ${isHidden ? '' : 'on'}" onclick="App.toggleNavItem('${opt.view}')">
+                  <div class="settings-toggle-knob"></div>
+                </div>
+              </label>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- Task Source -->
+      <div class="card">
+        <div class="strat-section-label">Task Source</div>
+        <div style="margin-bottom:8px;">
+          <select class="strat-settings-input" style="width:100%;" onchange="App.setTaskSource(this.value)">
+            <option value="both" ${(data.taskSource||'both')==='both'?'selected':''}>Both (Nexus tasks + Vault tasks)</option>
+            <option value="nexus" ${data.taskSource==='nexus'?'selected':''}>Nexus tasks only (no vault needed)</option>
+            <option value="vault" ${data.taskSource==='vault'?'selected':''}>Vault tasks only</option>
+          </select>
+        </div>
+        <div style="font-size:11px; color:var(--text-dim);">Use "Nexus only" if you don't have an Obsidian vault. <span style="color:var(--green);">Saved automatically.</span></div>
+      </div>
+
+      <!-- Vault Connection -->
+      <div class="card">
+        <div class="strat-section-label">Vault Connection</div>
+        <div style="font-size:13px; color:var(--text-dim); margin-bottom:8px;">
+          ${App.vaultAvailable ? `<span style="color:var(--green);">&#10003; Connected</span> — ${escapeHTML((App.serverConfig || {}).vaultPath || '')}`
+            : 'Not connected. Connect your Obsidian vault to enable journaling sync and task sync.'}
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+          <input type="text" id="settings-vault-path" class="strat-settings-input" placeholder="Vault folder path (e.g. D:/Obsidian/My Vault)" style="flex:1;" value="${escapeHTML((App.serverConfig || {}).vaultPath || '')}">
+          <button class="btn btn-primary btn-sm" onclick="App.updateVaultPath()">Save</button>
+        </div>
+        <div style="font-size:12px; color:var(--text-dim); margin-bottom:4px;">Daily journal / rapid log filename:</div>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="settings-rapid-log" class="strat-settings-input" placeholder="e.g. Daily Notes.md" style="flex:1;" value="${escapeHTML((App.serverConfig || {}).rapidLogFile || '02 Rapid logging.md')}">
+          <button class="btn btn-primary btn-sm" onclick="App.saveRapidLogFile()">Save</button>
+        </div>
+        <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">The markdown file used for daily journaling.</div>
+      </div>
+
+      <!-- File Locations -->
+      ${App.vaultAvailable ? (() => {
+        const vaultPath = (App.serverConfig || {}).vaultPath || '';
+        const rapidLog = (App.serverConfig || {}).rapidLogFile || '02 Rapid logging.md';
+        const checklists = data.checklists || [];
+        return `<div class="card">
+          <div class="strat-section-label">File Locations</div>
+          <div style="font-size:11px; color:var(--text-dim); margin-bottom:10px;">All Markdown files read or written by Nexus:</div>
+          <div class="settings-file-row">
+            <span class="settings-file-label">App Data</span>
+            <code class="settings-file-path">nexus-data.json (+ backups/)</code>
+          </div>
+          <div class="settings-file-row">
+            <span class="settings-file-label">Daily Journal / Rapid Log</span>
+            <code class="settings-file-path">${escapeHTML(vaultPath)}/${escapeHTML(rapidLog)}</code>
+          </div>
+          <div class="settings-file-row">
+            <span class="settings-file-label">Captures</span>
+            <code class="settings-file-path">${escapeHTML(vaultPath)}/${escapeHTML((App.serverConfig||{}).captureFile||'04 Quick captures.md')}</code>
+          </div>
+          ${checklists.map(cl => {
+            const sn = cl.name.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'');
+            return `<div class="settings-file-row">
+              <span class="settings-file-label">${escapeHTML(cl.icon||'📋')} ${escapeHTML(cl.name)}</span>
+              <code class="settings-file-path">${escapeHTML(vaultPath)}/nexus_project/${sn}/checklist.md</code>
+            </div>`;
+          }).join('')}
+        </div>`;
+      })() : ''}
+
+      <!-- Export & Import -->
+      <div class="card">
+        <div class="strat-section-label">Export &amp; Import</div>
+        <div style="font-size:12px; font-weight:600; color:var(--text); margin-bottom:6px;">Export</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+          <button class="btn btn-primary btn-sm" id="export-btn">&#11015; Export App Data (JSON)</button>
+          <button class="btn btn-ghost btn-sm" onclick="App.exportNexusProject()" ${!App.vaultAvailable ? 'disabled title="Connect vault first"' : ''}>
+            &#11015; Export nexus_project/ <span style="font-size:10px; color:var(--amber);">&#9888; may be large</span>
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="App.exportFullVault()" ${!App.vaultAvailable ? 'disabled title="Connect vault first"' : ''} style="border-color:var(--amber)40;">
+            &#11015; Export Full Vault <span style="font-size:10px; color:var(--red);">&#9888; can be GBs</span>
+          </button>
+        </div>
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:14px;">
+          <strong>App Data</strong> = tasks, journal, captures, checklists, settings (small JSON).<br>
+          <strong>nexus_project/</strong> = your project checklists as Markdown (small).<br>
+          <strong>Full Vault</strong> = your entire linked Obsidian vault folder as a zip. This can be very large — only use if you want a local backup and have enough disk space.
+        </div>
+        <div style="font-size:12px; font-weight:600; color:var(--text); margin-bottom:6px;">Import / Restore</div>
+        <button class="btn btn-ghost btn-sm" id="import-wizard-btn" onclick="App.openImportWizard()">&#9874; Import &amp; Setup Wizard</button>
+        <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">Step-by-step: restore a backup, connect a vault, or set up fresh.</div>
+      </div>
+
+      <!-- Import Wizard Modal (rendered inline when active) -->
+      ${App._importWizard ? App._renderImportWizard() : ''}
+    `;
   }
 };
 
@@ -3049,12 +3488,22 @@ const App = {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
     updateStreak();
-    // Apply saved theme
-    const savedTheme = Store.get().theme || 'dark';
+    // Apply saved theme + appearance preferences
+    const savedData = Store.get();
+    const savedTheme = savedData.theme || 'dark';
     if (savedTheme === 'light') document.body.classList.add('light');
+    if (savedData.accentColor) document.documentElement.style.setProperty('--accent', savedData.accentColor);
+    const fontMap = { small: '13px', medium: '15px', large: '17px' };
+    const zoomMap = { small: '0.875', medium: '1', large: '1.125' };
+    if (savedData.fontSize) {
+      document.documentElement.style.setProperty('--base-font-size', fontMap[savedData.fontSize] || '15px');
+      document.documentElement.style.setProperty('--app-zoom', zoomMap[savedData.fontSize] || '1');
+    }
+    if (savedData.defaultView) this.currentView = savedData.defaultView;
     this._checkRecurringTasks();
     this.bindNav();
     this.bindExport();
+    this._applyNavVisibility();
     this.render();
     // Pre-fetch vault data in background (only if vault is configured)
     if (this.serverConfig && this.serverConfig.useVault && this.serverConfig.vaultPath) {
@@ -3127,6 +3576,8 @@ const App = {
   _setupBrowsePath: '',
   _setupFolders: [],
   _setupProjects: [],   // [{name,deadline,color,icon}]
+  _setupUseTemplate: false,
+  _setupTemplateDismissed: false,
 
   showSetupWizard() {
     document.getElementById('sidebar').style.display = 'none';
@@ -3156,10 +3607,11 @@ const App = {
           <p class="view-subtitle">Your personal evolution hub. Let's set you up in 5 steps.</p>
         </div>
         <div class="card" style="padding:20px;">
-          <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Your name</label>
-          <input type="text" id="setup-name" class="strat-settings-input" placeholder="e.g. Alex" style="width:100%; margin-bottom:16px;" value="${escapeHTML(Store.get().userName || '')}">
-          <p style="font-size:12px; color:var(--text-dim); margin-bottom:16px;">Used for personalised greetings. Optional.</p>
-          <div style="text-align:right;">
+          <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">What should we call you?</label>
+          <input type="text" id="setup-name" class="strat-settings-input" placeholder="e.g. Alex" style="width:100%; margin-bottom:10px;" value="${escapeHTML(Store.get().userName || '')}">
+          <p style="font-size:12px; color:var(--text-dim); margin-bottom:16px;">Nexus will greet you personally on your dashboard — with a different motivational message every day. You can always change this in Settings.</p>
+          <div style="text-align:right; display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:11px; color:var(--text-dim); font-style:italic;">Optional — skip if you prefer.</span>
             <button class="btn btn-primary" onclick="
               const n=document.getElementById('setup-name').value.trim();
               if(n) Store.update(d=>{d.userName=n;});
@@ -3169,33 +3621,68 @@ const App = {
 
     } else if (step === 2) {
       const projects = this._setupProjects;
+      const deadlineDefault = (() => { const d = new Date(); d.setMonth(d.getMonth() + 12); return d.toISOString().slice(0,7); })();
       content.innerHTML = `
         ${progressBar}
-        <div style="text-align:center; margin-bottom:24px;">
+        <div style="text-align:center; margin-bottom:20px;">
           <div style="font-size:40px;">🎯</div>
           <h1 style="margin:8px 0 4px;">Your Projects</h1>
-          <p class="view-subtitle">Add the goals or projects you're working towards.</p>
+          <p class="view-subtitle">Add the study goals or projects you are working towards.</p>
         </div>
+
+        ${!this._setupTemplateDismissed ? `
+        <div class="card" style="padding:18px; margin-bottom:12px; border:1px solid var(--accent); background:linear-gradient(135deg, var(--bg-card) 0%, rgba(124,111,247,0.08) 100%);">
+          <div style="display:flex; align-items:flex-start; gap:12px;">
+            <div style="font-size:32px; line-height:1;">🎓</div>
+            <div style="flex:1;">
+              <div style="font-size:14px; font-weight:700; margin-bottom:4px;">Try an example template?</div>
+              <div style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">We have prepared a <strong style="color:var(--text);">Master's Exam</strong> project template to show you how Nexus works. Great if you are studying for a major exam or degree.</div>
+              <div style="font-size:11px; color:var(--text-dim); margin-bottom:12px; padding:8px 10px; background:var(--bg-input); border-radius:6px; line-height:1.8;">
+                10 sections · ~250 topics, ready to check off:<br>
+                <span style="color:var(--text);">Basic Science · Trauma · Foot &amp; Ankle · Arthroplasty · OORU · Paeds · Spine · Sport · Hand · VIVA Operative</span>
+              </div>
+              <div style="display:flex; gap:8px;">
+                <button class="btn btn-primary btn-sm" onclick="
+                  App._setupUseTemplate = true;
+                  App._setupTemplateDismissed = true;
+                  const hasIt = App._setupProjects.find(p => p._template === 'masters');
+                  if (!hasIt) App._setupProjects.unshift({id:'template-masters', name: 'Master\'s Exam', icon:'🎓', color:'#7c6ff7', deadline:'${deadlineDefault}', _template:'masters'});
+                  App._renderSetup();">✓ Yes, use this template</button>
+                <button class="btn btn-ghost btn-sm" onclick="App._setupTemplateDismissed=true; App._renderSetup();">No thanks, I'll build my own</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        ` : this._setupUseTemplate && projects.find(p=>p._template==='masters') ? `
+        <div style="display:flex; align-items:center; gap:8px; padding:10px 14px; background:rgba(124,111,247,0.1); border:1px solid rgba(124,111,247,0.3); border-radius:8px; margin-bottom:12px; font-size:12px; color:var(--accent);">
+          <span>🎓</span> <span>Master's Exam template added — you can customise it any time in Strategy.</span>
+        </div>
+        ` : ''}
+
         <div class="card" style="padding:20px; margin-bottom:12px;">
           ${projects.length === 0 ? `<p style="font-size:13px; color:var(--text-dim); margin-bottom:12px;">No projects yet. Add your first one below.</p>` : `
             <div style="margin-bottom:12px;">
               ${projects.map((p,i)=>`
                 <div style="display:flex; align-items:center; gap:8px; padding:8px; background:var(--bg-input); border-radius:8px; margin-bottom:6px;">
+                  <span style="width:20px; height:20px; border-radius:50%; background:${escapeHTML(p.color||'#7c6ff7')}; display:inline-block;"></span>
                   <span>${escapeHTML(p.icon)}</span>
                   <span style="flex:1; font-size:13px;">${escapeHTML(p.name)}</span>
-                  <span style="font-size:11px; color:var(--text-dim);">Due ${p.deadline}</span>
-                  <button class="btn btn-ghost btn-sm" style="color:var(--red); padding:2px 6px;" onclick="App._setupProjects.splice(${i},1); App._renderSetup();">✕</button>
+                  <span style="font-size:11px; color:var(--text-dim);">${p.deadline ? 'Due '+p.deadline : ''}</span>
+                  <button class="btn btn-ghost btn-sm" style="color:var(--red); padding:2px 6px;" onclick="
+                    App._setupProjects.splice(${i},1);
+                    if(App._setupProjects.every(p=>!p._template)) App._setupUseTemplate=false;
+                    App._renderSetup();">✕</button>
                 </div>`).join('')}
             </div>`}
           <details ${projects.length===0?'open':''}>
-            <summary style="font-size:13px; color:var(--accent); cursor:pointer; margin-bottom:10px;">${projects.length===0?'Add project':'+ Add another'}</summary>
+            <summary style="font-size:13px; color:var(--accent); cursor:pointer; margin-bottom:10px;">${projects.length===0?'+ Add a project':'+ Add another project'}</summary>
             <div style="margin-top:10px;">
               <div style="display:flex; gap:8px; margin-bottom:8px;">
                 <input type="text" id="sp-icon" class="strat-settings-input" placeholder="🎯" style="width:52px; text-align:center;" value="🎯">
                 <input type="text" id="sp-name" class="strat-settings-input" placeholder="Project name" style="flex:1;">
               </div>
               <div style="display:flex; gap:8px; margin-bottom:10px;">
-                <input type="date" id="sp-deadline" class="strat-settings-input" style="flex:1;">
+                <input type="month" id="sp-deadline" class="strat-settings-input" style="flex:1;">
                 <input type="color" id="sp-color" value="#7c6ff7" style="width:40px; height:36px; border:none; background:none; cursor:pointer;">
               </div>
               <button class="btn btn-primary btn-sm" onclick="
@@ -3203,7 +3690,7 @@ const App = {
                 const name=document.getElementById('sp-name').value.trim();
                 const deadline=document.getElementById('sp-deadline').value;
                 const color=document.getElementById('sp-color').value;
-                if(!name||!deadline){toast('Name and deadline required');return;}
+                if(!name){toast('Project name required');return;}
                 App._setupProjects.push({id:uid(),name,deadline,color,icon});
                 App._renderSetup();">Add</button>
             </div>
@@ -3336,8 +3823,144 @@ const App = {
         if (!d.strategy.projects) d.strategy.projects = [];
         for (const p of this._setupProjects) {
           if (!d.strategy.projects.find(x => x.name === p.name)) {
-            d.strategy.projects.push(p);
+            const proj = Object.assign({}, p);
+            delete proj._template;
+            d.strategy.projects.push(proj);
           }
+        }
+      }
+      // Add Master's Exam template checklist
+      if (this._setupUseTemplate) {
+        const mkItem = text => ({ id: uid(), text, done: false, revisions: [] });
+        const templateCL = {
+          id: uid(),
+          name: "Master's Exam",
+          icon: '🎓',
+          color: '#7c6ff7',
+          description: "Master's degree orthopaedic surgery exam preparation",
+          captureTag: '#masters_exam',
+          deadline: this._setupProjects.find(p=>p._template==='masters')?.deadline || '',
+          sections: [
+            { name: 'Basic Science', items: [
+              mkItem('Bone graft'), mkItem('Fat embolism'), mkItem('OM'), mkItem('Osteoporosis'),
+              mkItem('A/B (emp vs prophy)'), mkItem('Preop prophy against infection'), mkItem('Theatre design'),
+              mkItem('DVT'), mkItem('SSG vs FTSG'), mkItem('PE'), mkItem('Sutures'), mkItem('Tourniquet'),
+              mkItem('Fracture healing'), mkItem('Traction'), mkItem('Diathermy'), mkItem('Local anaesthesia'),
+              mkItem('Bone growth factors'), mkItem('Bone formation (intramembranous+endochondral)'),
+              mkItem('Drain'), mkItem('Bone cement + cementing tech'), mkItem('POP'),
+              mkItem('Nerve injury (Seddon/Sunderland, nerve healing, repair principles)'),
+              mkItem('Wound healing (phases, factors affecting healing)'),
+              mkItem('Biomechanics (stress/strain, viscoelasticity, implant failure modes)'),
+              mkItem('Blood transfusion / cell salvage'), mkItem('Nutrition and surgical outcomes'),
+            ]},
+            { name: 'Trauma', items: [
+              mkItem('Open fracture'), mkItem('DCO-SIRS/CARS/ERB/FLOW'), mkItem('NOF'),
+              mkItem('Non-union + malunion'), mkItem('Compartment syndrome \u2013 leg, forearm, hand and foot'),
+              mkItem('ILN'), mkItem('Plating'), mkItem('DHS'), mkItem('Lag screw'),
+              mkItem('Cortical vs cancellous screw'), mkItem('Distal radius fracture'),
+              mkItem('Tibial plateau fracture'), mkItem('Pilon fracture'),
+              mkItem('Diaphyseal femur fracture / subtrochanteric fracture'),
+              mkItem('Pelvis and acetabular fracture'), mkItem('Polytrauma management / damage control resuscitation'),
+              mkItem('Pathological fracture management'), mkItem('Nerve and vascular injury with fracture'),
+              mkItem('Periprosthetic fracture'), mkItem('Floating knee'),
+            ]},
+            { name: 'Foot and Ankle', items: [
+              mkItem('Talus fracture'), mkItem('Calcaneal fracture'), mkItem('Lisfranc'),
+              mkItem('Malleolar fracture'), mkItem('5th metatarsal fracture'), mkItem('Charcot foot'),
+              mkItem('Hallux valgus'), mkItem('High and low ankle sprain'), mkItem('Peroneal tendon subluxation'),
+              mkItem('Posterior tibial tendon dysfunction'), mkItem('TA rupture'), mkItem('Tarsal tunnel'),
+              mkItem('Plantar fasciitis'), mkItem('Tibiotalar impingement'), mkItem('DFU'), mkItem('Ankle OA'),
+              mkItem('Toe deformities (hammer / claw / mallet toe)'), mkItem("Morton's neuroma"),
+              mkItem('Metatarsalgia'), mkItem('Subtalar OA'), mkItem('Ankle ligament reconstruction (Brostrom)'),
+            ]},
+            { name: 'Arthroplasty', items: [
+              mkItem('DVT'), mkItem('Infection'), mkItem('RA knee'), mkItem('AVN hip'),
+              mkItem('Polyethylene + cementing'), mkItem('TKR'), mkItem('THR'), mkItem('HTO'), mkItem('UKA'),
+              mkItem('Obesity in arthroplasty'), mkItem('Revision TKR'), mkItem('Revision THR'),
+              mkItem('Bearing surfaces (ceramic, metal, XLPE)'), mkItem('Dislocation after THR'),
+              mkItem('Leg length discrepancy'), mkItem('Instability after TKR'), mkItem('Stiffness after TKR'),
+              mkItem('Painful TKR / THR workup'), mkItem('Patella resurfacing'),
+              mkItem('Cementless vs cemented fixation principles'), mkItem('Templating'),
+            ]},
+            { name: 'OORU', items: [
+              mkItem('Biopsy'), mkItem('Metastasis - Bone, Spine'), mkItem('Cell cycle + chemotherapy and radiotherapy'),
+              mkItem('Bone tumour'), mkItem('Soft tissue tumour'), mkItem('Osteosarcoma'),
+              mkItem("Ewing's sarcoma"), mkItem('Chondrosarcoma'), mkItem('Giant cell tumour (GCT)'),
+              mkItem('Osteochondroma / enchondroma'), mkItem('Limb salvage principles'),
+              mkItem('Surgical margins (Enneking staging)'),
+            ]},
+            { name: 'Paeds', items: [
+              mkItem('DDH'), mkItem('SCFE'), mkItem('Perthes'), mkItem("Blount's disease"), mkItem('CP'),
+              mkItem('Trauma - femur'), mkItem('NAI'), mkItem('Pes cavus'), mkItem('OI'),
+              mkItem('Supracondylar fracture'), mkItem('Lateral condyle fracture'), mkItem('Rickets'),
+              mkItem('SED'), mkItem('MED'), mkItem('Achondroplasia'), mkItem('Sacral agenesis'),
+              mkItem('In-toeing gait'), mkItem('Spina bifida'), mkItem('CTEV'), mkItem('Flexible flat foot'),
+              mkItem('Vertical talus'), mkItem('Tarsal coalition'), mkItem('Arthrogryposis'),
+              mkItem('Congenital pseudarthrosis of the tibia'), mkItem('Neurofibromatosis'),
+              mkItem('Hip septic arthritis vs transient synovitis'), mkItem("Nursemaid's elbow"),
+              mkItem('Medial epicondyle fracture'), mkItem('Radial head / neck fracture in children'),
+              mkItem('Monteggia / Galeazzi in children'), mkItem('Leg length discrepancy (paeds)'),
+              mkItem('Limb lengthening principles (Ilizarov)'), mkItem('Obstetric brachial plexus palsy'),
+              mkItem('Congenital coxa vara'),
+            ]},
+            { name: 'Spine', items: [
+              mkItem('Disc herniation'), mkItem('Degenerative spine'), mkItem('Sagittal balance'),
+              mkItem('Spinal cord injury'), mkItem('Spinal stenosis'), mkItem('Approach to scoliosis'),
+              mkItem('TB / Pyogenic spine'), mkItem('Thoracolumbar fracture'), mkItem('Spine mets'),
+              mkItem('Cervical fracture'), mkItem('Cervical myelopathy'), mkItem('Cauda equina'),
+              mkItem("Scheuermann's kyphosis"), mkItem('DISH'), mkItem('Discogenic back pain'), mkItem('AS'),
+              mkItem('Degenerative spondylolisthesis'), mkItem('Adult isthmic spondylolisthesis'),
+              mkItem('Cervical facet dislocation'), mkItem('Atlanto-axial instability (C1/C2)'),
+              mkItem('Odontoid fracture'), mkItem("Hangman's fracture"), mkItem('Cervical radiculopathy'),
+              mkItem('Lumbar spondylolysis'), mkItem('Failed back surgery syndrome'),
+              mkItem('Spinal tumours (intradural vs extradural)'), mkItem('Ossification of PLL (OPLL)'),
+            ]},
+            { name: 'Sport', items: [
+              mkItem('ACL'), mkItem('PCL'), mkItem('PLC'), mkItem('Patellofemoral instability'),
+              mkItem('Chondral injury mx'), mkItem('Meniscus injury'), mkItem('Subacromial impingement'),
+              mkItem('Frozen shoulder'), mkItem('Rotator cuff tear'), mkItem('Rotator cuff arthropathy'),
+              mkItem('Shoulder instability (AMBRI)'), mkItem('SLAP'), mkItem('TUBS'),
+              mkItem('Posterior instability'), mkItem('ACJ'), mkItem('Multiligament knee injury'),
+              mkItem('Knee dislocation'), mkItem('MCL injury'), mkItem('FAI / Hip labral tear'),
+              mkItem('Hamstring injuries'), mkItem('Patellar tendinopathy / quadriceps tendon rupture'),
+              mkItem('Distal biceps tendon rupture'), mkItem('Medial elbow instability (UCL / Tommy John)'),
+              mkItem('Elbow OCD / lateral elbow pain in athletes'),
+            ]},
+            { name: 'Hand', items: [
+              mkItem('Finger tip'), mkItem('Hand infection'), mkItem('Flexor tendon + rehab'),
+              mkItem('Brachial plexus'), mkItem('Scaphoid fracture'),
+              mkItem('Radial / median / ulnar nerve entrapment'), mkItem('Flexor tendon injuries and repair'),
+              mkItem('Extensor tendon injuries and repair'), mkItem('Pulley system'), mkItem('Trigger finger'),
+              mkItem("De Quervain's tenosynovitis"), mkItem('Finger reimplantation'),
+              mkItem('Congenital hand'), mkItem('Congenital arm'), mkItem('TFCC'),
+              mkItem('Metacarpal fracture'), mkItem('SNAC'), mkItem('VISI'), mkItem('DISI'), mkItem('SLAC'),
+              mkItem('Perilunate dislocation'), mkItem('Tendon transfer principle'),
+              mkItem("Dupuytren's contracture"), mkItem('Ganglion'),
+              mkItem('CMC OA (thumb basal joint arthritis)'), mkItem('Rheumatoid hand'),
+              mkItem('DRUJ instability'), mkItem('High vs low nerve injury \u2013 functional consequences'),
+              mkItem('Wrist instability (unifying framework)'),
+              mkItem('Reconstructive ladder / flap classification for hand'),
+            ]},
+            { name: 'VIVA Operative', items: [
+              mkItem('Lumbar Discectomy'), mkItem('Laminectomy'), mkItem('Pedicle screw insertion'),
+              mkItem('Anterior approach cervical + ACDF'), mkItem('Hip approaches'), mkItem('Radius approach'),
+              mkItem('Humerus approach'), mkItem('Elbow approaches'), mkItem('Deltopectoral'),
+              mkItem('Knee scope'), mkItem('TKR'), mkItem('Safe zone ext fix'), mkItem('Iliac crest bone graft'),
+              mkItem('Wound debridement open fracture + traumatic wound'), mkItem('Ray amputation'),
+              mkItem('BKA/AKA'), mkItem('Fasciotomies'), mkItem('CTR'), mkItem('TFR'), mkItem('Halo vest'),
+              mkItem('Skull tongs'), mkItem('Bipolar hemi'), mkItem('Wrist block'), mkItem('Ankle block'),
+              mkItem('Digital block'), mkItem('Hand incisions'), mkItem('THR operative steps'),
+              mkItem('ORIF distal radius'), mkItem('ORIF tibial plateau'), mkItem('Ankle ORIF'),
+              mkItem('Retrograde femoral nail'), mkItem('Tension band wiring'),
+              mkItem('Ilizarov / circular frame application'), mkItem('ACL reconstruction'),
+              mkItem('Hallux valgus correction (scarf / chevron)'), mkItem('Nerve repair / graft'),
+              mkItem('Knee approaches (medial parapatellar etc.)'),
+            ]},
+          ]
+        };
+        if (!d.checklists) d.checklists = [];
+        if (!d.checklists.find(c => c.name === templateCL.name)) {
+          d.checklists.push(templateCL);
         }
       }
     });
@@ -3372,9 +3995,9 @@ const App = {
   },
 
   bindExport() {
-    document.getElementById('export-btn').addEventListener('click', () => Store.exportJSON());
-    document.getElementById('import-btn').addEventListener('click', () => {
-      document.getElementById('import-file').click();
+    // Use event delegation — export-btn is in Settings, not always in DOM
+    document.body.addEventListener('click', (e) => {
+      if (e.target.closest('#export-btn')) Store.exportJSON();
     });
     document.getElementById('import-file').addEventListener('change', (e) => {
       if (e.target.files[0]) Store.importJSON(e.target.files[0]);
@@ -3705,27 +4328,116 @@ const App = {
   addGoal() {
     const input = document.getElementById('goal-input');
     const targetInput = document.getElementById('goal-target');
+    const freqInput = document.getElementById('goal-frequency');
     const text = input.value.trim();
     const target = parseInt(targetInput.value) || 10;
+    const frequency = freqInput ? freqInput.value : 'once';
     if (!text) return;
-    Store.update(d => d.goals.push({ id: uid(), text, target, current: 0, created: Date.now() }));
+    Store.update(d => d.goals.push({ id: uid(), text, target, current: 0, frequency, achieved: false, created: Date.now() }));
     toast('Goal added');
     this.render();
   },
 
   incrementGoal(id, amount) {
+    let justAchieved = false;
     Store.update(d => {
       const goal = d.goals.find(g => g.id === id);
-      if (goal) goal.current = Math.max(0, goal.current + amount);
+      if (!goal) return;
+      const wasAchieved = goal.achieved;
+      goal.current = Math.max(0, goal.current + amount);
+      if (!wasAchieved && goal.current >= goal.target && goal.target > 0) {
+        goal.achieved = true;
+        goal.achievedDate = new Date().toISOString().slice(0, 10);
+        justAchieved = true;
+      }
     });
+    if (justAchieved) toast('🏆 Goal achieved!');
+    this.render();
+  },
+
+  showGoalPrompt(id, type) {
+    this._goalPrompt = { id, type };
+    this.render();
+    // Focus textarea after render
+    setTimeout(() => { const el = document.getElementById('goal-reason-input'); if (el) el.focus(); }, 50);
+  },
+
+  archiveGoal(id) {
+    const reason = (document.getElementById('goal-reason-input')?.value || '').trim();
+    Store.update(d => {
+      const g = d.goals.find(g => g.id === id);
+      if (!g) return;
+      g.achieved = true;
+      g.achievedDate = g.achievedDate || new Date().toISOString().slice(0, 10);
+      g.achievedReason = reason;
+    });
+    this._goalPrompt = null;
+    toast('🏆 Achievement archived! You should be proud.');
+    this._writeGoalMd();
+    this.render();
+  },
+
+  giveUpGoal(id) {
+    const reason = (document.getElementById('goal-reason-input')?.value || '').trim();
+    Store.update(d => {
+      const g = d.goals.find(g => g.id === id);
+      if (!g) return;
+      g.gaveUp = true;
+      g.gaveUpDate = new Date().toISOString().slice(0, 10);
+      g.gaveUpReason = reason;
+    });
+    this._goalPrompt = null;
+    toast('Goal set aside. Every detour is part of the journey. 💙');
+    this._writeGoalMd();
     this.render();
   },
 
   deleteGoal(id) {
-    if (!confirm('Delete this goal?')) return;
+    if (!confirm('Remove this goal permanently?')) return;
     Store.update(d => d.goals = d.goals.filter(g => g.id !== id));
-    toast('Goal deleted');
+    toast('Goal removed');
+    this._writeGoalMd();
     this.render();
+  },
+
+  _writeGoalMd() {
+    if (!this.vaultAvailable) return;
+    const data = Store.get();
+    const active = (data.goals || []).filter(g => !g.achieved && !g.gaveUp);
+    const achieved = (data.goals || []).filter(g => g.achieved);
+    const gaveUp = (data.goals || []).filter(g => g.gaveUp);
+    const lines = ['# Nexus Goals', ''];
+    lines.push('## Active Goals', '');
+    if (active.length) {
+      active.forEach(g => {
+        const pct = g.target > 0 ? Math.min(100, Math.round(g.current / g.target * 100)) : 0;
+        const freq = g.frequency && g.frequency !== 'once' ? ` *(${g.frequency})*` : '';
+        lines.push(`- [ ] **${g.text}**${freq} — ${g.current}/${g.target} (${pct}%)`);
+      });
+    } else { lines.push('*No active goals.*'); }
+    lines.push('');
+    if (achieved.length) {
+      lines.push('## 🏆 Achieved Goals', '');
+      achieved.forEach(g => {
+        lines.push(`- [x] **${g.text}** — achieved on ${g.achievedDate || '?'}`);
+        if (g.achievedReason) lines.push(`  - *"${g.achievedReason}"*`);
+      });
+      lines.push('');
+    }
+    if (gaveUp.length) {
+      lines.push('## Given Up Goals', '');
+      gaveUp.forEach(g => {
+        lines.push(`- ~~${g.text}~~ — set aside on ${g.gaveUpDate || '?'}`);
+        if (g.gaveUpReason) lines.push(`  - *"${g.gaveUpReason}"*`);
+      });
+      lines.push('');
+    }
+    const content = lines.join('\n');
+    fetch('/api/vault/goal-write', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content })
+    }).catch(() => {});
   },
 
   // ─── Strategy Actions ──────────────────────────
@@ -3877,14 +4589,15 @@ const App = {
       fetch('/api/vault/project-log', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(logEntry) }).catch(() => {});
     }
+    this._autoSyncProject(clId);
     this.render();
   },
 
   deleteChecklist(clId) {
     const cl = (Store.get().checklists || []).find(c => c.id === clId);
-    if (!confirm('Delete this checklist?')) return;
+    if (!confirm(`Delete project "${cl?.name || 'this project'}"?`)) return;
     Store.update(d => { d.checklists = (d.checklists || []).filter(c => c.id !== clId); });
-    toast('Checklist deleted');
+    toast('Project deleted');
     if (cl?.vaultFile && this.vaultAvailable) {
       if (confirm(`Also delete ${cl.vaultFile} from vault?`)) {
         fetch('/api/vault/file', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
@@ -3899,6 +4612,28 @@ const App = {
       const cl = (d.checklists || []).find(c => c.id === clId);
       if (cl) cl.projectId = projectId || null;
     });
+    this.render();
+  },
+
+  updateChecklistMeta(clId, field, value) {
+    Store.update(d => {
+      const cl = (d.checklists || []).find(c => c.id === clId);
+      if (cl) cl[field] = value;
+    });
+    this._autoSyncProject(clId);
+    this.render();
+  },
+
+  toggleGanttExpand(clId) {
+    if (!this._ganttExpanded) this._ganttExpanded = {};
+    this._ganttExpanded[clId] = !this._ganttExpanded[clId];
+    this.render();
+  },
+
+  jumpToProjectSection(projectId) {
+    this.currentView = 'strategy';
+    this.strategyTab = 'projects';
+    this.strategyProject = projectId;
     this.render();
   },
 
@@ -3925,6 +4660,192 @@ const App = {
     this.render();
   },
 
+  _syncTimers: {},
+  _autoSyncProject(clId) {
+    if (!this.vaultAvailable) return;
+    clearTimeout(this._syncTimers[clId]);
+    this._syncTimers[clId] = setTimeout(() => this.syncProjectToVault(clId, true), 1500);
+  },
+
+  async syncProjectToVault(clId, silent = false) {
+    const data = Store.get();
+    const cl = (data.checklists || []).find(c => c.id === clId);
+    if (!cl) return;
+    const allItems = (cl.sections || []).flatMap(s => s.items || []);
+    const done = allItems.filter(it => (it.revisions || []).length > 0 || it.done).length;
+    try {
+      const r = await fetch('/api/vault/project-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checklist: cl, done, total: allItems.length })
+      });
+      const result = await r.json();
+      if (result.success) {
+        Store.update(d => {
+          const c = (d.checklists || []).find(c => c.id === clId);
+          if (c) c.lastVaultSync = new Date().toISOString().slice(0, 10);
+        });
+        if (!silent) toast(`Synced "${cl.name}" → vault`);
+        this.render();
+      } else { if (!silent) toast('Sync failed: ' + (result.error || 'unknown error')); }
+    } catch { if (!silent) toast('Sync failed — is vault connected?'); }
+  },
+
+  async exportFullVault() {
+    if (!confirm('This will zip your ENTIRE Obsidian vault folder. This can be very large (potentially gigabytes) and may take a while. Make sure you have enough disk space.\n\nContinue?')) return;
+    try {
+      toast('Zipping vault… this may take a while');
+      const r = await fetch('/api/vault/export-full-vault');
+      if (!r.ok) { const err = await r.json(); return toast('Export failed: ' + (err.error || 'unknown')); }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `obsidian_vault_${new Date().toISOString().slice(0,10)}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { toast('Export failed'); }
+  },
+
+  async exportNexusProject() {
+    if (!confirm('This will zip the nexus_project/ folder from your vault. Files might be large. Continue?')) return;
+    try {
+      const r = await fetch('/api/vault/export-nexus-project');
+      if (!r.ok) { const err = await r.json(); return toast('Export failed: ' + (err.error || 'unknown')); }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `nexus_project_${new Date().toISOString().slice(0,10)}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { toast('Export failed'); }
+  },
+
+  _importWizard: null, // null | { step: 1|2a|2b|3, choice: null|'backup'|'vault', preview: null, newVault: '' }
+
+  openImportWizard() {
+    this._importWizard = { step: 1, choice: null, preview: null, newVault: '' };
+    this.render();
+    setTimeout(() => document.getElementById('import-wizard-modal')?.scrollIntoView({ behavior: 'smooth' }), 100);
+  },
+
+  _renderImportWizard() {
+    const wz = this._importWizard;
+    if (!wz) return '';
+    const steps = {
+      1: `
+        <div style="font-size:13px; font-weight:600; margin-bottom:14px;">What would you like to do?</div>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; padding:10px; background:var(--bg-input); border-radius:8px; border:1px solid ${wz.choice==='backup'?'var(--accent)':'var(--border)'};" onclick="App._importWizard.choice='backup'; App.render();">
+            <span style="font-size:18px;">&#128190;</span>
+            <div><div style="font-weight:600;">Restore Nexus Backup</div><div style="font-size:11px; color:var(--text-dim);">Import a JSON backup to restore tasks, journal, captures, checklists</div></div>
+          </label>
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; padding:10px; background:var(--bg-input); border-radius:8px; border:1px solid ${wz.choice==='vault'?'var(--accent)':'var(--border)'};" onclick="App._importWizard.choice='vault'; App.render();">
+            <span style="font-size:18px;">&#128218;</span>
+            <div><div style="font-weight:600;">Connect Obsidian Vault</div><div style="font-size:11px; color:var(--text-dim);">Point Nexus to an existing vault folder for journal sync</div></div>
+          </label>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:14px; justify-content:flex-end;">
+          <button class="btn btn-ghost btn-sm" onclick="App._importWizard=null; App.render();">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="App._wizardNext()" ${!wz.choice?'disabled':''}>Next &#8594;</button>
+        </div>`,
+      '2a': `
+        <div style="font-size:13px; font-weight:600; margin-bottom:10px;">&#128190; Restore Nexus Backup</div>
+        ${wz.preview ? `
+          <div style="padding:10px; background:var(--bg-input); border-radius:8px; margin-bottom:10px; font-size:12px; color:var(--text-dim);">
+            Found: ${wz.preview.tasks} tasks &middot; ${wz.preview.journal} journal entries &middot; ${wz.preview.captures} captures &middot; ${wz.preview.checklists} projects
+          </div>
+          <div style="color:var(--amber); font-size:11px; margin-bottom:10px;">&#9888; This will replace all current app data.</div>
+          <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button class="btn btn-ghost btn-sm" onclick="App._importWizard.preview=null; App.render();">&#8592; Back</button>
+            <button class="btn btn-primary btn-sm" onclick="App._wizardConfirmImport()">Confirm &amp; Restore</button>
+          </div>` : `
+          <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+            <input type="file" id="wizard-import-file" accept=".json" style="flex:1; font-size:12px;" onchange="App._wizardPreviewImport(this.files[0])">
+          </div>
+          <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button class="btn btn-ghost btn-sm" onclick="App._importWizard.step=1; App.render();">&#8592; Back</button>
+          </div>`}`,
+      '2b': `
+        <div style="font-size:13px; font-weight:600; margin-bottom:10px;">&#128218; Connect Obsidian Vault</div>
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">Enter the full path to your Obsidian vault folder:</div>
+        <input type="text" id="wizard-vault-path" class="strat-settings-input" style="width:100%; margin-bottom:6px;"
+          placeholder="${process?.platform === 'win32' ? 'C:\\Users\\...\\Obsidian\\Vault' : '/Users/.../Documents/Obsidian/Vault'}"
+          value="${escapeHTML((App.serverConfig||{}).vaultPath||'')}">
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:12px;">Windows: use forward slashes or double backslashes</div>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+          <button class="btn btn-ghost btn-sm" onclick="App._importWizard.step=1; App.render();">&#8592; Back</button>
+          <button class="btn btn-primary btn-sm" onclick="App._wizardSaveVault()">Save &amp; Connect</button>
+        </div>`,
+      3: `
+        <div style="text-align:center; padding:10px 0;">
+          <div style="font-size:28px; margin-bottom:8px;">&#10003;</div>
+          <div style="font-size:14px; font-weight:600; margin-bottom:6px;">All set!</div>
+          ${wz.doneMsg ? `<div style="font-size:12px; color:var(--text-dim); margin-bottom:12px;">${wz.doneMsg}</div>` : ''}
+          <button class="btn btn-primary btn-sm" onclick="App._importWizard=null; App.render();">Close</button>
+        </div>`,
+    };
+    return `<div id="import-wizard-modal" class="card" style="border:2px solid var(--accent); margin-top:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div class="strat-section-label" style="margin:0;">&#9874; Import &amp; Setup Wizard</div>
+        <span style="font-size:11px; color:var(--text-dim);">Step ${wz.step === 1 ? 1 : 2} of 3</span>
+      </div>
+      ${steps[wz.step] || ''}
+    </div>`;
+  },
+
+  _wizardNext() {
+    const wz = this._importWizard;
+    if (!wz) return;
+    wz.step = wz.choice === 'backup' ? '2a' : '2b';
+    this.render();
+  },
+
+  _wizardPreviewImport(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const d = JSON.parse(e.target.result);
+        this._importWizard._pendingData = d;
+        this._importWizard.preview = {
+          tasks: (d.tasks || []).length,
+          journal: (d.journal || []).length,
+          captures: (d.captures || []).length,
+          checklists: (d.checklists || []).length,
+        };
+        this.render();
+      } catch { toast('Invalid JSON file'); }
+    };
+    reader.readAsText(file);
+  },
+
+  _wizardConfirmImport() {
+    const wz = this._importWizard;
+    if (!wz?._pendingData) return;
+    const data = wz._pendingData;
+    Store._data = Store._merge(data);
+    Store._saveToServer();
+    this._importWizard = { step: 3, doneMsg: `Restored: ${(data.tasks||[]).length} tasks, ${(data.journal||[]).length} journal entries, ${(data.checklists||[]).length} projects.` };
+    toast('Data imported successfully');
+    this.render();
+  },
+
+  async _wizardSaveVault() {
+    const input = document.getElementById('wizard-vault-path');
+    if (!input?.value.trim()) return toast('Enter a vault path first');
+    const vaultPath = input.value.trim();
+    try {
+      await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vaultPath }) });
+      this.serverConfig = { ...(this.serverConfig || {}), vaultPath };
+      await this.loadVaultData();
+      this._importWizard = { step: 3, doneMsg: `Vault connected: ${vaultPath}` };
+      this.render();
+    } catch { toast('Failed to save vault path'); }
+  },
+
   createProjectVaultFile(clId) {
     const cl = (Store.get().checklists || []).find(c => c.id === clId);
     if (!cl) return;
@@ -3946,6 +4867,7 @@ const App = {
       const cl = (d.checklists||[]).find(c => c.id === clId);
       if (cl) cl.sections.splice(secIdx, 1);
     });
+    this._autoSyncProject(clId);
     this.render();
   },
 
@@ -3956,6 +4878,7 @@ const App = {
       const cl = (d.checklists||[]).find(c => c.id === clId);
       if (cl) cl.sections.push({ name, items: [] });
     });
+    this._autoSyncProject(clId);
     this.render();
   },
 
@@ -3968,6 +4891,7 @@ const App = {
         cl.sections[secIdx].items.push({ id: uid(), text, tag: null, status: 'not-started', revisions: [] });
       }
     });
+    this._autoSyncProject(clId);
     this.render();
   },
 
@@ -3976,6 +4900,7 @@ const App = {
       const cl = (d.checklists||[]).find(c => c.id === clId);
       if (cl && cl.sections[secIdx]) cl.sections[secIdx].items.splice(itemIdx, 1);
     });
+    this._autoSyncProject(clId);
     this.render();
   },
 
@@ -3990,6 +4915,7 @@ const App = {
         delete item.done;
       }
     });
+    this._autoSyncProject(clId);
     this.render();
   },
 
@@ -4066,10 +4992,21 @@ const App = {
   saveEditProject(clId, newName, newIcon) {
     newName = (newName || '').trim();
     if (!newName) return;
+    const oldCl = (Store.get().checklists || []).find(c => c.id === clId);
+    const oldName = oldCl ? oldCl.name : null;
     Store.update(d => {
       const cl = (d.checklists||[]).find(c => c.id === clId);
       if (cl) { cl.name = newName; if (newIcon) cl.icon = newIcon.trim(); }
     });
+    // Rename vault project folder if name changed and vault available
+    if (oldName && oldName !== newName && this.vaultAvailable) {
+      const safeName = n => n.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'');
+      fetch('/api/vault/project-rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldName: safeName(oldName), newName: safeName(newName) })
+      }).catch(() => {});
+    }
     this._editingProject = null;
     this.render();
   },
@@ -4136,7 +5073,7 @@ const App = {
     const name = document.getElementById('new-proj-name')?.value.trim();
     const deadline = document.getElementById('new-proj-deadline')?.value;
     const color = document.getElementById('new-proj-color')?.value || '#7c6ff7';
-    if (!name || !deadline) { toast('Name and deadline required'); return; }
+    if (!name) { toast('Project name required'); return; }
     const projId = uid();
     Store.update(d => {
       if (!d.strategy.projects) d.strategy.projects = [];
@@ -5118,6 +6055,54 @@ const App = {
     document.body.classList.toggle('light', newTheme === 'light');
     const btn = document.getElementById('theme-toggle');
     if (btn) btn.innerHTML = newTheme === 'dark' ? '&#9788;' : '&#9790;';
+    this.render();
+  },
+
+  setAccentColor(color) {
+    Store.update(d => { d.accentColor = color; });
+    document.documentElement.style.setProperty('--accent', color);
+    this.render();
+  },
+
+  saveUserName() {
+    const n = (document.getElementById('settings-username')?.value || '').trim();
+    Store.update(d => { d.userName = n; });
+    toast(n ? `Hi, ${n}! 👋 Dashboard greeting updated.` : 'Name cleared');
+    this.render();
+  },
+
+  setFontSize(size) {
+    Store.update(d => { d.fontSize = size; });
+    const fontMap = { small: '13px', medium: '15px', large: '17px' };
+    const zoomMap = { small: '0.875', medium: '1', large: '1.125' };
+    document.documentElement.style.setProperty('--base-font-size', fontMap[size] || '15px');
+    document.documentElement.style.setProperty('--app-zoom', zoomMap[size] || '1');
+    this.render();
+  },
+
+  setDefaultView(view) {
+    Store.update(d => { d.defaultView = view; });
+    this.render();
+  },
+
+  toggleNavItem(view) {
+    Store.update(d => {
+      if (!d.hiddenNavItems) d.hiddenNavItems = [];
+      const idx = d.hiddenNavItems.indexOf(view);
+      if (idx >= 0) d.hiddenNavItems.splice(idx, 1);
+      else d.hiddenNavItems.push(view);
+    });
+    this._applyNavVisibility();
+    this.render();
+  },
+
+  _applyNavVisibility() {
+    const hidden = Store.get().hiddenNavItems || [];
+    document.querySelectorAll('#nav-links li[data-view]').forEach(li => {
+      const v = li.dataset.view;
+      if (v === 'dashboard' || v === 'settings') { li.style.display = ''; return; }
+      li.style.display = hidden.includes(v) ? 'none' : '';
+    });
   },
 
   // ─── Today Quick Add ────────────────────────
@@ -5232,7 +6217,7 @@ document.addEventListener('keydown', (e) => {
   } else if (key === 'v') {
     document.querySelector('[data-view="vault"]')?.click();
   } else if (key === 'g') {
-    document.querySelector('[data-view="goals"]')?.click();
+    document.querySelector('[data-view="strategy"]')?.click();
   } else if (key === 's') {
     App.currentView = 'search'; App.render();
     setTimeout(() => document.getElementById('search-input')?.focus(), 50);

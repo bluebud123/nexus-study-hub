@@ -78,6 +78,73 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// ── Nexus Data Store (single nexus-data.json) ──────
+const NEXUS_DATA_FILE = path.join(__dirname, 'nexus-data.json');
+const NEXUS_BACKUP_DIR = path.join(__dirname, 'backups');
+
+async function nexusBestBackup() {
+  try {
+    const files = await fs.promises.readdir(NEXUS_BACKUP_DIR);
+    let best = null, bestSize = 0;
+    for (const f of files.filter(f => f.endsWith('.json'))) {
+      const fp = path.join(NEXUS_BACKUP_DIR, f);
+      const stat = await fs.promises.stat(fp);
+      if (stat.size > bestSize) { bestSize = stat.size; best = fp; }
+    }
+    return best;
+  } catch { return null; }
+}
+
+async function nexusDataRead() {
+  try {
+    const stat = await fs.promises.stat(NEXUS_DATA_FILE);
+    if (stat.size < 10000) {
+      // Suspiciously small — restore from best backup
+      const backup = await nexusBestBackup();
+      if (backup) {
+        const raw = await fs.promises.readFile(backup, 'utf8');
+        await fs.promises.writeFile(NEXUS_DATA_FILE, raw, 'utf8');
+        console.log(`[nexus] Auto-restored from ${path.basename(backup)} (${stat.size}B → ${raw.length}B)`);
+        return JSON.parse(raw);
+      }
+    }
+    return JSON.parse(await fs.promises.readFile(NEXUS_DATA_FILE, 'utf8'));
+  } catch {
+    const backup = await nexusBestBackup();
+    if (backup) {
+      try {
+        const raw = await fs.promises.readFile(backup, 'utf8');
+        await fs.promises.writeFile(NEXUS_DATA_FILE, raw, 'utf8');
+        return JSON.parse(raw);
+      } catch {}
+    }
+    return null;
+  }
+}
+
+async function nexusDataWrite(data) {
+  await withWriteLock(async () => {
+    const tmp = NEXUS_DATA_FILE + '.tmp';
+    await fs.promises.writeFile(tmp, JSON.stringify(data, null, 2), 'utf8');
+    await fs.promises.rename(tmp, NEXUS_DATA_FILE);
+  });
+  // Hourly auto-backup in backups/
+  try {
+    await fs.promises.mkdir(NEXUS_BACKUP_DIR, { recursive: true });
+    const backupName = `nexus-data-${new Date().toISOString().slice(0, 13)}.json`;
+    const backupFile = path.join(NEXUS_BACKUP_DIR, backupName);
+    try { await fs.promises.access(backupFile); } catch {
+      const tmp = backupFile + '.tmp';
+      await fs.promises.writeFile(tmp, JSON.stringify(data, null, 2), 'utf8');
+      await fs.promises.rename(tmp, backupFile);
+      // Keep last 10
+      const files = (await fs.promises.readdir(NEXUS_BACKUP_DIR))
+        .filter(f => f.startsWith('nexus-data-') && f.endsWith('.json')).sort().reverse();
+      for (const old of files.slice(10)) await fs.promises.unlink(path.join(NEXUS_BACKUP_DIR, old)).catch(() => {});
+    }
+  } catch {}
+}
+
 // ── Tag Extraction ────────────────────────────────
 function extractTags(content) {
   const tags = {};
@@ -1175,46 +1242,130 @@ async function handleAPI(req, res, pathname, query) {
       return jsonRes(res, { suggestions });
     }
 
-    // ── Nexus App Data (server-side storage) ──
+    // ── Nexus App Data ──
     if (pathname === '/api/nexus-data' && method === 'GET') {
-      const dataFile = path.join(CONFIG.staticDir, 'nexus-data.json');
-      try {
-        const raw = await fs.promises.readFile(dataFile, 'utf8');
-        return jsonRes(res, JSON.parse(raw));
-      } catch {
-        return jsonRes(res, null);  // No data yet — client uses defaults
-      }
+      return jsonRes(res, await nexusDataRead());
     }
 
     if (pathname === '/api/nexus-data' && method === 'POST') {
       const body = await parseBody(req);
-      const dataFile = path.join(CONFIG.staticDir, 'nexus-data.json');
-
-      // Auto-backup: keep last 5 backups (one per hour max)
-      const backupDir = path.join(CONFIG.staticDir, 'backups');
-      try {
-        await fs.promises.mkdir(backupDir, { recursive: true });
-        const now = new Date();
-        const backupName = `nexus-data-${now.toISOString().slice(0,13).replace(/[:-]/g, '')}.json`;
-        const backupFile = path.join(backupDir, backupName);
-        // Only backup if this hour's backup doesn't exist yet
-        try { await fs.promises.access(backupFile); } catch {
-          try {
-            const current = await fs.promises.readFile(dataFile, 'utf8');
-            await fs.promises.writeFile(backupFile, current, 'utf8');
-          } catch {}
-          // Prune old backups (keep last 5)
-          const files = (await fs.promises.readdir(backupDir)).filter(f => f.startsWith('nexus-data-')).sort().reverse();
-          for (const old of files.slice(5)) {
-            await fs.promises.unlink(path.join(backupDir, old)).catch(() => {});
-          }
-        }
-      } catch {}
-
-      const tmp = dataFile + '.tmp';
-      await fs.promises.writeFile(tmp, JSON.stringify(body, null, 2), 'utf8');
-      await fs.promises.rename(tmp, dataFile);
+      await nexusDataWrite(body);
       return jsonRes(res, { success: true });
+    }
+
+    // ── Project → Vault Sync (accepts single checklist or {checklists:[...]}) ──
+    if (pathname === '/api/vault/project-sync' && method === 'POST') {
+      if (!CONFIG.vaultPath) return errRes(res, 'Vault not configured');
+      const body = await parseBody(req);
+      const list = body.checklists || (body.checklist ? [body.checklist] : []);
+      if (!list.length) return errRes(res, 'checklists required');
+      const today = todayStr();
+      const synced = [];
+      for (const checklist of list) {
+        if (!checklist || !checklist.name) continue;
+        const sn = checklist.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+        const projDir = path.join(CONFIG.vaultPath, 'nexus_project', sn);
+        await fs.promises.mkdir(projDir, { recursive: true });
+
+        // Build checklist.md
+        let clMd = `# ${checklist.name} Checklist\n`;
+        clMd += `> Deadline: ${checklist.deadline || 'none'} | Last synced: ${today}\n\n`;
+        if (checklist.description) clMd += `${checklist.description}\n\n`;
+        for (const sec of (checklist.sections || [])) {
+          clMd += `## ${sec.name || 'General'}\n`;
+          for (const it of (sec.items || [])) {
+            const isDone = (it.revisions || []).length > 0 || it.done;
+            clMd += `- [${isDone ? 'x' : ' '}] ${it.text}\n`;
+          }
+          clMd += '\n';
+        }
+        const clFile = path.join(projDir, 'checklist.md');
+        await fs.promises.writeFile(clFile + '.tmp', clMd, 'utf8');
+        await fs.promises.rename(clFile + '.tmp', clFile);
+
+        // Append to log.md only if progress changed today
+        const allItems = (checklist.sections || []).flatMap(s => s.items || []);
+        const done = allItems.filter(it => (it.revisions || []).length > 0 || it.done).length;
+        const total = allItems.length;
+        const pct = total ? Math.round(done / total * 100) : 0;
+        const logFile = path.join(projDir, 'log.md');
+        const logHeader = `# ${checklist.name} Log\n`;
+        let logContent = logHeader;
+        try { logContent = await fs.promises.readFile(logFile, 'utf8'); } catch {}
+        if (!logContent.startsWith('#')) logContent = logHeader + logContent;
+        // Only append if today's entry not already present
+        if (!logContent.includes(`## ${today}`)) {
+          logContent += `\n## ${today} — ${done}/${total} (${pct}%)\n`;
+        }
+        await fs.promises.writeFile(logFile + '.tmp', logContent, 'utf8');
+        await fs.promises.rename(logFile + '.tmp', logFile);
+        synced.push(`nexus_project/${sn}/checklist.md`);
+      }
+      return jsonRes(res, { success: true, synced });
+    }
+
+    // ── Write goal.md to vault ──
+    if (pathname === '/api/vault/goal-write' && method === 'POST') {
+      if (!CONFIG.vaultPath) return errRes(res, 'Vault not configured');
+      const body = await parseBody(req);
+      const { content } = body;
+      if (!content) return errRes(res, 'content required');
+      const goalFile = path.join(CONFIG.vaultPath, 'nexus_goals.md');
+      try {
+        await fs.promises.writeFile(goalFile, content, 'utf8');
+        return jsonRes(res, { success: true, path: 'nexus_goals.md' });
+      } catch (e) {
+        return errRes(res, 'Failed to write nexus_goals.md: ' + e.message);
+      }
+    }
+
+    // ── Rename project folder in vault ──
+    if (pathname === '/api/vault/project-rename' && method === 'POST') {
+      if (!CONFIG.vaultPath) return errRes(res, 'Vault not configured');
+      const body = await parseBody(req);
+      const { oldName, newName } = body;
+      if (!oldName || !newName) return errRes(res, 'oldName and newName required');
+      const oldDir = path.join(CONFIG.vaultPath, 'nexus_project', oldName);
+      const newDir = path.join(CONFIG.vaultPath, 'nexus_project', newName);
+      try {
+        await fs.promises.access(oldDir);
+        await fs.promises.rename(oldDir, newDir);
+        return jsonRes(res, { success: true, renamed: `nexus_project/${oldName} → nexus_project/${newName}` });
+      } catch (e) {
+        return jsonRes(res, { success: false, note: 'Folder not found or rename failed: ' + e.message });
+      }
+    }
+
+    // ── Export nexus_project/ or full vault as zip (Windows: PowerShell) ──
+    if ((pathname === '/api/vault/export-nexus-project' || pathname === '/api/vault/export-full-vault') && method === 'GET') {
+      if (!CONFIG.vaultPath) return errRes(res, 'Vault not configured');
+      const isFullVault = pathname === '/api/vault/export-full-vault';
+      const sourceDir = isFullVault ? CONFIG.vaultPath : path.join(CONFIG.vaultPath, 'nexus_project');
+      const zipLabel = isFullVault ? 'obsidian_vault' : 'nexus_project';
+      if (!isFullVault) {
+        try { await fs.promises.access(sourceDir); } catch { return errRes(res, 'nexus_project folder not found — sync a project first'); }
+      }
+      const zipName = `${zipLabel}_${todayStr()}.zip`;
+      const zipPath = path.join(CONFIG.staticDir, zipName);
+      const { execFile } = require('child_process');
+      await new Promise((resolve, reject) => {
+        if (process.platform === 'win32') {
+          execFile('powershell', ['-NoProfile', '-Command',
+            `Compress-Archive -Path "${sourceDir}" -DestinationPath "${zipPath}" -Force`
+          ], { timeout: 300000 }, (err) => err ? reject(err) : resolve());
+        } else {
+          execFile('zip', ['-r', zipPath, sourceDir], { timeout: 300000 }, (err) => err ? reject(err) : resolve());
+        }
+      });
+      const zipData = await fs.promises.readFile(zipPath);
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${zipName}"`,
+        'Content-Length': zipData.length,
+      });
+      res.end(zipData);
+      await fs.promises.unlink(zipPath).catch(() => {});
+      return;
     }
 
     // ── Config API ──

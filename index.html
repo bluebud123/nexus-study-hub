@@ -34,14 +34,8 @@
       <li data-view="journal">
         <span class="nav-icon">&#9998;</span> Journal
       </li>
-      <li data-view="goals">
-        <span class="nav-icon">&#9650;</span> Goals
-      </li>
       <li data-view="vault">
         <span class="nav-icon">&#128218;</span> Vault
-      </li>
-      <li data-view="calendar">
-        <span class="nav-icon">&#128197;</span> Calendar
       </li>
       <li data-view="growth">
         <span class="nav-icon">&#128200;</span> Growth
@@ -49,14 +43,18 @@
       <li data-view="strategy" class="nav-strategy">
         <span class="nav-icon">&#127919;</span> Strategy
       </li>
+      <li data-view="calendar">
+        <span class="nav-icon">&#128197;</span> Calendar
+      </li>
       <li data-view="shortcuts">
         <span class="nav-icon">&#63;</span> Shortcuts
+      </li>
+      <li data-view="settings">
+        <span class="nav-icon">&#9881;</span> Settings
       </li>
     </ul>
     <div class="sidebar-footer">
       <button id="theme-toggle" title="Toggle light/dark theme" onclick="App.toggleTheme()">&#9788;</button>
-      <button id="export-btn" title="Export all data">Export</button>
-      <button id="import-btn" title="Import data">Import</button>
       <input type="file" id="import-file" accept=".json" hidden>
       <input type="file" id="checklist-upload-file" accept=".md,.txt" hidden>
     </div>
