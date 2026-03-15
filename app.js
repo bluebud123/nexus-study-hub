@@ -3,6 +3,8 @@
 //  Data lives in nexus-data.json (server-side).
 // ═══════════════════════════════════════════════════
 
+
+
 // ── Data Layer ──────────────────────────────────────
 const Store = {
   _data: null,       // In-memory cache (loaded from server on init)
@@ -3495,10 +3497,7 @@ const App = {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
-    // Register PWA service worker
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
-    }
+    // SW registration removed — inline script in index.html handles cache-busting
     updateStreak();
     // Apply saved theme + appearance preferences
     const savedData = Store.get();

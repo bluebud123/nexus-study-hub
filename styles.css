@@ -33,7 +33,7 @@ body {
 /* ── Sidebar ─────────────────────────────────── */
 #sidebar {
   width: 220px;
-  height: 100vh;
+  height: calc(100vh / var(--app-zoom, 1));
   background: var(--bg-card);
   border-right: 1px solid var(--border);
   display: grid;
