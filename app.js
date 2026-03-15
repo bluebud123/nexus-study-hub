@@ -22,11 +22,9 @@ const Store = {
         milestones: DEFAULT_MILESTONES,
         allocations: DEFAULT_ALLOC,
         notes: {},
-        examDate: '2026-11-01',
+        examDate: '',
         schedule: [...WEEKLY_TEMPLATE],
-        projects: [
-          { id: 'proj-exam', name: "Master's Exam", deadline: '2026-11-01', color: '#E8453C', icon: '📖' }
-        ],
+        projects: [],
       },
       timer: { sessions: [] },
       habits: { definitions: [], log: {} },
@@ -52,10 +50,8 @@ const Store = {
     if (!merged.dashboardLayout) merged.dashboardLayout = defaults.dashboardLayout;
     if (!merged.checklists) merged.checklists = [];
     if (typeof merged._topicsImportDismissed === 'undefined') merged._topicsImportDismissed = false;
-    if (!merged.strategy.projects || !merged.strategy.projects.length) {
-      merged.strategy.projects = [
-        { id: 'proj-exam', name: "Master's Exam", deadline: merged.strategy.examDate || '2026-11-01', color: '#E8453C', icon: '📖' }
-      ];
+    if (!merged.strategy.projects) {
+      merged.strategy.projects = [];
     }
     // Migrate old short month keys (feb, mar…) to YYYY-MM format
     const _mMap = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
@@ -2356,66 +2352,31 @@ const Views = {
         ${App.weeklyExportMsg ? `<div style="font-size:12px; color:var(--green); margin-top:8px;">${escapeHTML(App.weeklyExportMsg)}</div>` : ''}
       </div>
 
-      <!-- Study Time + MCQ Performance -->
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-        <!-- Study Time -->
-        <div class="card">
-          <div class="strat-section-label">Study Time</div>
-          ${(() => {
-            const sessions = (Store.get().timer || {}).sessions || [];
-            const thisWeek = sessions.filter(s => {
-              const d = new Date(); d.setDate(d.getDate() - 7);
-              return s.date >= d.toISOString().slice(0, 10);
-            });
-            const weekMins = thisWeek.reduce((s, x) => s + (x.duration || 0), 0);
-            const totalMins = sessions.reduce((s, x) => s + (x.duration || 0), 0);
-            return `
-              <div class="stats-grid" style="grid-template-columns:1fr 1fr; margin-bottom:8px;">
-                <div class="stat-card" style="padding:10px;">
-                  <div class="stat-number" style="font-size:18px;">${Math.round(weekMins / 60 * 10) / 10}h</div>
-                  <div class="stat-label">This Week</div>
-                </div>
-                <div class="stat-card" style="padding:10px;">
-                  <div class="stat-number" style="font-size:18px;">${Math.round(totalMins / 60 * 10) / 10}h</div>
-                  <div class="stat-label">All Time</div>
-                </div>
+      <!-- Study Time -->
+      <div class="card">
+        <div class="strat-section-label">Study Time</div>
+        ${(() => {
+          const sessions = (Store.get().timer || {}).sessions || [];
+          const thisWeek = sessions.filter(s => {
+            const d = new Date(); d.setDate(d.getDate() - 7);
+            return s.date >= d.toISOString().slice(0, 10);
+          });
+          const weekMins = thisWeek.reduce((s, x) => s + (x.duration || 0), 0);
+          const totalMins = sessions.reduce((s, x) => s + (x.duration || 0), 0);
+          return `
+            <div class="stats-grid" style="grid-template-columns:1fr 1fr; margin-bottom:8px;">
+              <div class="stat-card" style="padding:10px;">
+                <div class="stat-number" style="font-size:18px;">${Math.round(weekMins / 60 * 10) / 10}h</div>
+                <div class="stat-label">This Week</div>
               </div>
-              <div style="font-size:12px; color:var(--text-dim);">${sessions.length} sessions total</div>
-            `;
-          })()}
-        </div>
-
-        <!-- MCQ Performance -->
-        <div class="card">
-          <div class="strat-section-label">MCQ Performance</div>
-          ${(() => {
-            const scores = Store.get().mcqScores || [];
-            if (scores.length === 0) return '<div style="font-size:12px; color:var(--text-dim);">No scores logged yet</div>';
-            const avg = Math.round(scores.reduce((s, x) => s + (x.score / x.total * 100), 0) / scores.length);
-            const totalQs = scores.reduce((s, x) => s + x.total, 0);
-            const recent = scores.slice(-10);
-            // SVG line chart
-            const chartW = 280, chartH = 60;
-            const points = recent.map((s, i) => {
-              const x = recent.length === 1 ? chartW / 2 : (i / (recent.length - 1)) * chartW;
-              const y = chartH - (s.score / s.total * chartH);
-              return `${x},${y}`;
-            }).join(' ');
-            return `
-              <div style="margin-bottom:8px;">
-                <svg viewBox="0 0 ${chartW} ${chartH}" width="100%" height="${chartH}" style="overflow:visible;">
-                  <polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                  ${recent.map((s, i) => {
-                    const x = recent.length === 1 ? chartW / 2 : (i / (recent.length - 1)) * chartW;
-                    const y = chartH - (s.score / s.total * chartH);
-                    return '<circle cx="' + x + '" cy="' + y + '" r="3" fill="var(--accent)"><title>' + s.date + ': ' + s.score + '/' + s.total + ' (' + Math.round(s.score / s.total * 100) + '%)</title></circle>';
-                  }).join('')}
-                </svg>
+              <div class="stat-card" style="padding:10px;">
+                <div class="stat-number" style="font-size:18px;">${Math.round(totalMins / 60 * 10) / 10}h</div>
+                <div class="stat-label">All Time</div>
               </div>
-              <div style="font-size:12px; color:var(--text-dim);">Avg: ${avg}% &middot; ${totalQs} questions</div>
-            `;
-          })()}
-        </div>
+            </div>
+            <div style="font-size:12px; color:var(--text-dim);">${sessions.length} sessions total</div>
+          `;
+        })()}
       </div>
 
       <!-- Session History -->
@@ -2440,42 +2401,10 @@ const Views = {
         })()}
       </div>
 
-      <!-- MCQ Score Entry -->
+      <!-- Writing Volume -->
       <div class="card">
-        <div class="strat-section-label">Log MCQ Score</div>
-        <div class="mcq-entry-row">
-          <input type="date" id="mcq-date" class="strat-settings-input" value="${todayKey()}" style="width:130px;">
-          <input type="text" id="mcq-source" class="strat-settings-input" placeholder="Source (e.g. Apley Ch.5)" style="flex:1;">
-          <input type="number" id="mcq-score" class="strat-settings-input" placeholder="Score" style="width:70px;">
-          <span style="color:var(--text-dim); line-height:32px;">/</span>
-          <input type="number" id="mcq-total" class="strat-settings-input" placeholder="Total" style="width:70px;">
-          <button class="btn btn-primary btn-sm" onclick="App.addMcqScore()">Log</button>
-        </div>
-        ${(() => {
-          const scores = (Store.get().mcqScores || []).slice(-5).reverse();
-          if (scores.length === 0) return '';
-          return '<div style="margin-top:8px;">' + scores.map(s =>
-            '<div style="display:flex; justify-content:space-between; font-size:12px; padding:3px 0; color:var(--text-dim);">' +
-            '<span>' + s.date + (s.source ? ' — ' + escapeHTML(s.source) : '') + '</span>' +
-            '<span style="color:' + (s.score / s.total >= 0.7 ? 'var(--green)' : s.score / s.total >= 0.5 ? 'var(--amber)' : 'var(--red)') + ';">' + s.score + '/' + s.total + ' (' + Math.round(s.score / s.total * 100) + '%)</span>' +
-            '</div>'
-          ).join('') + '</div>';
-        })()}
-      </div>
-
-      <!-- Two column grid -->
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-        <!-- Writing Volume -->
-        <div class="card">
-          <div class="strat-section-label">Writing Volume (monthly)</div>
-          <div class="spark-row">${sparkHTML || '<span style="color:var(--text-dim); font-size:12px;">No data yet</span>'}</div>
-        </div>
-
-        <!-- Clinical Cases -->
-        <div class="card">
-          <div class="strat-section-label">Clinical Cases (monthly)</div>
-          <div class="spark-row">${casesHTML || '<span style="color:var(--text-dim); font-size:12px;">No data yet</span>'}</div>
-        </div>
+        <div class="strat-section-label">Writing Volume (monthly)</div>
+        <div class="spark-row">${sparkHTML || '<span style="color:var(--text-dim); font-size:12px;">No data yet</span>'}</div>
       </div>
 
       <!-- Tag Trend Sparklines -->
@@ -3089,18 +3018,19 @@ const Views = {
 
       <div class="card">
         <div class="strat-section-label">Keyboard Shortcuts</div>
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:10px;">Hold <strong>Ctrl+Shift</strong> then press the key.</div>
         <div class="shortcuts-grid">
-          <div class="shortcut-row"><span>Dashboard</span><span class="shortcut-key">D</span></div>
-          <div class="shortcut-row"><span>Today</span><span class="shortcut-key">Y</span></div>
-          <div class="shortcut-row"><span>Capture</span><span class="shortcut-key">C</span></div>
-          <div class="shortcut-row"><span>Tasks</span><span class="shortcut-key">T</span></div>
-          <div class="shortcut-row"><span>Journal</span><span class="shortcut-key">J</span></div>
-          <div class="shortcut-row"><span>Goals</span><span class="shortcut-key">G</span></div>
-          <div class="shortcut-row"><span>Vault</span><span class="shortcut-key">V</span></div>
-          <div class="shortcut-row"><span>Vault Search</span><span class="shortcut-key">/</span></div>
-          <div class="shortcut-row"><span>Focus Mode</span><span class="shortcut-key">F</span></div>
-          <div class="shortcut-row"><span>Search</span><span class="shortcut-key">S</span></div>
-          <div class="shortcut-row"><span>Shortcut Help</span><span class="shortcut-key">?</span></div>
+          <div class="shortcut-row"><span>Dashboard</span><span class="shortcut-key">Ctrl+Shift+D</span></div>
+          <div class="shortcut-row"><span>Today</span><span class="shortcut-key">Ctrl+Shift+Y</span></div>
+          <div class="shortcut-row"><span>Capture</span><span class="shortcut-key">Ctrl+Shift+C</span></div>
+          <div class="shortcut-row"><span>Tasks</span><span class="shortcut-key">Ctrl+Shift+T</span></div>
+          <div class="shortcut-row"><span>Journal</span><span class="shortcut-key">Ctrl+Shift+J</span></div>
+          <div class="shortcut-row"><span>Strategy</span><span class="shortcut-key">Ctrl+Shift+G</span></div>
+          <div class="shortcut-row"><span>Vault</span><span class="shortcut-key">Ctrl+Shift+V</span></div>
+          <div class="shortcut-row"><span>Search</span><span class="shortcut-key">Ctrl+Shift+S</span></div>
+          <div class="shortcut-row"><span>Focus Mode</span><span class="shortcut-key">Ctrl+Shift+F</span></div>
+          <div class="shortcut-row"><span>Vault Search</span><span class="shortcut-key">Ctrl+Shift+/</span></div>
+          <div class="shortcut-row"><span>Shortcut Help</span><span class="shortcut-key">Ctrl+Shift+?</span></div>
         </div>
       </div>
 
@@ -3399,7 +3329,12 @@ const Views = {
         </div>
         <div style="font-size:12px; font-weight:600; color:var(--text); margin-bottom:6px;">Import / Restore</div>
         <button class="btn btn-ghost btn-sm" id="import-wizard-btn" onclick="App.openImportWizard()">&#9874; Import &amp; Setup Wizard</button>
-        <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">Step-by-step: restore a backup, connect a vault, or set up fresh.</div>
+        <div style="font-size:11px; color:var(--text-dim); margin-top:4px; margin-bottom:14px;">Step-by-step: restore a backup, connect a vault, or set up fresh.</div>
+        <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:4px;">
+          <div style="font-size:12px; font-weight:600; color:var(--text); margin-bottom:4px;">Onboarding</div>
+          <div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">Re-run the step-by-step setup wizard. Your existing data will not be deleted.</div>
+          <button class="btn btn-ghost btn-sm" onclick="App.rerunSetup()">&#9654; Replay Setup Wizard</button>
+        </div>
       </div>
 
       <!-- Import Wizard Modal (rendered inline when active) -->
@@ -3582,6 +3517,21 @@ const App = {
   showSetupWizard() {
     document.getElementById('sidebar').style.display = 'none';
     this._renderSetup();
+  },
+
+  rerunSetup() {
+    // Reset wizard state but preserve all user data
+    this._setupStep = 1;
+    this._setupUseVault = false;
+    this._setupVaultPath = '';
+    this._setupRapidLog = '02 Rapid logging.md';
+    this._setupTaskSource = 'both';
+    this._setupBrowsePath = '';
+    this._setupFolders = [];
+    this._setupProjects = [];
+    this._setupUseTemplate = false;
+    this._setupTemplateDismissed = false;
+    this.showSetupWizard();
   },
 
   _renderSetup() {
@@ -6195,10 +6145,14 @@ const App = {
 };
 
 // ── Keyboard Shortcuts ────────────────────────────
+// All shortcuts require Ctrl+Shift+ to prevent accidental activation.
 document.addEventListener('keydown', (e) => {
-  // Skip if typing in an input/textarea or using modifier keys (Ctrl+C, Ctrl+V, etc.)
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.metaKey || e.altKey) return;
+
+  // Ctrl+Shift+letter shortcuts
+  if (!e.ctrlKey || !e.shiftKey) return;
+  e.preventDefault();
 
   const key = e.key.toLowerCase();
   if (key === 'c') {
@@ -6221,14 +6175,12 @@ document.addEventListener('keydown', (e) => {
   } else if (key === 's') {
     App.currentView = 'search'; App.render();
     setTimeout(() => document.getElementById('search-input')?.focus(), 50);
-  } else if (key === '/') {
-    e.preventDefault();
-    document.querySelector('[data-view="vault"]')?.click();
-    setTimeout(() => document.getElementById('vault-search')?.focus(), 50);
   } else if (key === 'f') {
     App.toggleFocusMode();
+  } else if (key === '/') {
+    document.querySelector('[data-view="vault"]')?.click();
+    setTimeout(() => document.getElementById('vault-search')?.focus(), 50);
   } else if (key === '?') {
-    e.preventDefault();
     App.showShortcutHelp = !App.showShortcutHelp;
     App.render();
   }
