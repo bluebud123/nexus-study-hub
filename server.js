@@ -1404,6 +1404,22 @@ async function handleAPI(req, res, pathname, query) {
       }
     }
 
+    // ── Update from GitHub ──
+    if (pathname === '/api/update' && method === 'POST') {
+      const { execSync } = require('child_process');
+      try {
+        // Backup data files first
+        const dataFile = path.join(__dirname, 'nexus-data.json');
+        const backupFile = path.join(__dirname, 'nexus-data.backup.json');
+        if (fs.existsSync(dataFile)) fs.copyFileSync(dataFile, backupFile);
+        // Pull latest from GitHub
+        const output = execSync('git pull origin main', { cwd: __dirname, encoding: 'utf8', timeout: 30000 });
+        return jsonRes(res, { success: true, output: output.trim() });
+      } catch (err) {
+        return jsonRes(res, { success: false, error: err.stderr || err.message || 'Update failed' });
+      }
+    }
+
     errRes(res, 'Not found', 404);
   } catch (err) {
     console.error('API Error:', err);

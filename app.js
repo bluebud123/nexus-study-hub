@@ -129,7 +129,7 @@ const Store = {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `nexus-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.download = `nexus-backup-${localDateKey()}.json`;
     a.click();
     URL.revokeObjectURL(url);
     toast('Data exported');
@@ -168,13 +168,39 @@ function timeAgo(ts) {
 }
 
 function formatDate(ts) {
-  return new Date(ts).toLocaleDateString('en-US', {
+  return new Date(ts).toLocaleDateString(undefined, {
     weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
   });
 }
 
+function contrastColor(hex) {
+  // Returns white or dark text for readable contrast against a background color
+  if (!hex || hex.startsWith('var(')) return '#fff';
+  const c = hex.replace('#', '');
+  const r = parseInt(c.substr(0, 2), 16) || 0;
+  const g = parseInt(c.substr(2, 2), 16) || 0;
+  const b = parseInt(c.substr(4, 2), 16) || 0;
+  // Relative luminance (WCAG formula)
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.55 ? '#1a1a2e' : '#ffffff';
+}
+
+function formatTime(t) {
+  if (!t || t === 'Anytime') return null;
+  // If already locale-formatted (legacy data with AM/PM etc), return as-is
+  if (!/^\d{1,2}:\d{2}$/.test(t)) return t;
+  const [h, m] = t.split(':').map(Number);
+  const d = new Date(); d.setHours(h, m, 0, 0);
+  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+function localDateKey(date) {
+  const d = date || new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateKey(new Date());
 }
 
 function escapeHTML(str) {
@@ -281,7 +307,7 @@ function getGreeting(userName) {
 function monthLabel(key) {
   if (!key || !key.includes('-')) return key;
   const [y, m] = key.split('-').map(Number);
-  const shortName = new Date(y, m - 1, 1).toLocaleString('en', { month: 'short' });
+  const shortName = new Date(y, m - 1, 1).toLocaleString(undefined, { month: 'short' });
   const curYear = new Date().getFullYear();
   return shortName + (y !== curYear ? " '" + String(y).slice(2) : '');
 }
@@ -444,7 +470,7 @@ function updateStreak() {
 
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayKey = yesterday.toISOString().slice(0, 10);
+    const yesterdayKey = localDateKey(yesterday);
 
     if (data.streak.lastDate === yesterdayKey) {
       data.streak.count++;
@@ -500,7 +526,7 @@ const Views = {
     for (const j of data.journal) { if (j.date) activityDays.add(j.date); }
     for (const s of (data.timer?.sessions || [])) { if (s.date) activityDays.add(s.date); }
     for (const c of data.captures) {
-      const d = new Date(c.created).toISOString().slice(0, 10);
+      const d = localDateKey(new Date(c.created));
       activityDays.add(d);
     }
     for (const e of (App.vaultDailyEntries || [])) { if (e.date) activityDays.add(e.date); }
@@ -514,9 +540,9 @@ const Views = {
     let currentStreak = 0;
     const streakCheck = new Date();
     // Grace-for-today: if today has no activity yet, start counting from yesterday
-    if (!activityDays.has(streakCheck.toISOString().slice(0, 10))) streakCheck.setDate(streakCheck.getDate() - 1);
+    if (!activityDays.has(localDateKey(streakCheck))) streakCheck.setDate(streakCheck.getDate() - 1);
     for (let i = 0; i < 365; i++) {
-      const dk = streakCheck.toISOString().slice(0, 10);
+      const dk = localDateKey(streakCheck);
       if (activityDays.has(dk)) { currentStreak++; streakCheck.setDate(streakCheck.getDate() - 1); }
       else break;
     }
@@ -576,13 +602,13 @@ const Views = {
               const dLeft = dl && !isNaN(dl) ? Math.max(0, Math.ceil((dl - new Date()) / 864e5)) : null;
               const clColor = proj.color || '#7c6ff7';
               return `
-              <div style="flex:1; min-width:120px; padding:12px 16px; background:${clColor}15; border:1px solid ${clColor}40; border-radius:10px; cursor:pointer;" onclick="App.currentView='strategy'; App.strategyTab='projects'; App.strategyProject='${proj.id}'; App.render();">
-                <div style="font-size:10px; color:${clColor}; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">${escapeHTML(proj.icon || '')} ${escapeHTML(proj.name)}</div>
-                <div style="font-size:28px; font-weight:800; color:${clColor}; line-height:1.1; margin:4px 0;">${dLeft !== null ? dLeft : '—'}</div>
-                <div style="font-size:11px; color:var(--text-dim);">${dLeft !== null ? 'days left' : 'no deadline'}</div>
+              <div style="flex:1; min-width:120px; padding:12px 16px; background:${clColor}; border:1px solid ${clColor}; border-radius:10px; cursor:pointer;" onclick="App.openStrategyProject('${proj.id}')">
+                <div style="font-size:10px; color:${contrastColor(clColor)}; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; opacity:0.85;">${escapeHTML(proj.icon || '')} ${escapeHTML(proj.name)}</div>
+                <div style="font-size:28px; font-weight:800; color:${contrastColor(clColor)}; line-height:1.1; margin:4px 0;">${dLeft !== null ? dLeft : '—'}</div>
+                <div style="font-size:11px; color:${contrastColor(clColor)}; opacity:0.7;">${dLeft !== null ? 'days left' : 'no deadline'}</div>
               </div>`;
             }).join('')}
-            <div style="flex:1; min-width:120px; padding:12px 16px; background:var(--bg-card); border:1px solid var(--border); border-radius:10px; cursor:pointer;" onclick="App.currentView='goals'; App.render();">
+            <div style="flex:1; min-width:120px; padding:12px 16px; background:var(--bg-card); border:1px solid var(--border); border-radius:10px; cursor:pointer;" onclick="App.navigateTo('goals');">
               <div style="font-size:10px; color:var(--text-dim); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Goals</div>
               <div style="font-size:28px; font-weight:800; color:#a78bfa; line-height:1.1; margin:4px 0;">${activeGoalsList.length}</div>
               <div style="font-size:11px; color:var(--text-dim);">${activeGoalsList.length === 1 ? '1 active' : activeGoalsList.length + ' active'}${achievedGoalsList.length ? ' · ' + achievedGoalsList.length + ' achieved' : ''}</div>
@@ -591,7 +617,7 @@ const Views = {
                 return `<div><div style="font-size:10px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100px;">${escapeHTML(g.text)}</div><div style="height:3px; background:var(--border); border-radius:2px; margin-top:2px;"><div style="height:3px; width:${pct}%; background:#a78bfa; border-radius:2px;"></div></div></div>`;
               }).join('')}</div>` : '<div style="font-size:11px; color:var(--text-dim); margin-top:4px;">Set a goal →</div>'}
             </div>
-            <div style="flex:1; min-width:120px; padding:12px 16px; background:var(--bg-card); border:1px solid var(--border); border-radius:10px; cursor:pointer;" onclick="App.currentView='strategy'; App.render();">
+            <div style="flex:1; min-width:120px; padding:12px 16px; background:var(--bg-card); border:1px solid var(--border); border-radius:10px; cursor:pointer;" onclick="App.navigateTo('strategy');">
               <div style="font-size:10px; color:var(--text-dim); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Habits Today</div>
               <div style="font-size:28px; font-weight:800; color:#f472b6; line-height:1.1; margin:4px 0;">${checkedHabitsToday}<span style="font-size:14px; font-weight:400; color:var(--text-dim);">/${scheduleItems.length}</span></div>
               <div style="font-size:11px; color:var(--text-dim); margin-bottom:4px;">${scheduleItems.length === 0 ? 'No habits set' : habitPctToday === 100 ? 'All done! 🎉' : habitPctToday + '% complete'}</div>
@@ -608,10 +634,10 @@ const Views = {
           : vaultActive + openTasks;  // 'both': sum vault + nexus
         return `
         <div class="stats-grid">
-          <div class="stat-card"><div class="stat-number">${openTaskCount}</div><div class="stat-label">Open Tasks <span style="font-size:10px; color:var(--text-dim);">(active)</span></div></div>
-          <div class="stat-card"><div class="stat-number">${doneTasks}</div><div class="stat-label">Completed</div></div>
-          <div class="stat-card"><div class="stat-number">${totalCaptures}</div><div class="stat-label">Captures</div></div>
-          <div class="stat-card"><div class="stat-number">${journalEntries}</div><div class="stat-label">Journal</div></div>
+          <div class="stat-card stat-card-link" onclick="App.navigateTo('tasks');"><div class="stat-number">${openTaskCount}</div><div class="stat-label">Open Tasks <span style="font-size:10px; color:var(--text-dim);">(active)</span></div></div>
+          <div class="stat-card stat-card-link" onclick="App._taskShowDone=true; App.navigateTo('tasks');"><div class="stat-number">${doneTasks}</div><div class="stat-label">Completed</div></div>
+          <div class="stat-card stat-card-link" onclick="App.navigateTo('capture');"><div class="stat-number">${totalCaptures}</div><div class="stat-label">Captures</div></div>
+          <div class="stat-card stat-card-link" onclick="App.navigateTo('journal');"><div class="stat-number">${journalEntries}</div><div class="stat-label">Journal</div></div>
         </div>`;
       },
 
@@ -752,7 +778,7 @@ const Views = {
   today() {
     const data = Store.get();
     const todayDate = todayKey();
-    const dayName = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const dayName = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 
     // Today's vault daily log
     const todayLog = (App.vaultDailyEntries || []).find(d => d.date === todayDate);
@@ -789,9 +815,15 @@ const Views = {
       const schedProj = (data.strategy.projects || []).find(p => p.id === slot.stream || p.name === slot.stream);
       const color = schedProj ? schedProj.color : slot.stream === 'flex' ? 'var(--accent)' : 'var(--text-dim)';
       const streak = schedSlotStreak(idx);
-      return `<div class="today-sched-row ${checked ? 'sched-done' : ''}" style="align-items:center;">
+      const timeLabel = slot.time === 'Anytime' ? '<span style="font-style:italic; opacity:0.7;">Anytime</span>' : (formatTime(slot.time) || slot.time);
+      return `<div class="today-sched-row ${checked ? 'sched-done' : ''}" style="align-items:center;"
+        draggable="true"
+        ondragstart="App.onSchedDragStart(event, ${idx})"
+        ondragover="event.preventDefault(); this.style.borderTop='2px solid var(--accent)'"
+        ondragleave="this.style.borderTop=''"
+        ondrop="this.style.borderTop=''; App.onSchedDrop(event, ${idx})">
         <input type="checkbox" class="sched-check" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); App.toggleScheduleSlot(${idx})" style="accent-color:${color}; cursor:pointer; flex-shrink:0;">
-        <span class="today-sched-time" style="color:${color};">${slot.time}</span>
+        <span class="today-sched-time" style="color:${color};">${timeLabel}</span>
         <span style="flex:1;" class="${checked ? 'sched-activity-done' : ''}">${escapeHTML(slot.activity)}</span>
         ${streak > 0 ? `<span class="habit-streak" title="${streak}-day streak"><span class="habit-streak-fire">&#128293;</span>${streak}d</span>` : ''}
       </div>`;
@@ -829,7 +861,7 @@ const Views = {
       let streak = 0;
       const d = new Date();
       for (let i = 0; i < 60; i++) {
-        const dk = d.toISOString().slice(0, 10);
+        const dk = localDateKey(d);
         if ((schedLog[dk] || {})['slot-' + idx]) { streak++; d.setDate(d.getDate() - 1); }
         else break;
       }
@@ -978,15 +1010,25 @@ const Views = {
           ${scheduleHTML}
           ${App._editSchedule ? `
             <div style="margin-top:8px; border-top:1px solid var(--border); padding-top:8px;">
-              <div class="strat-settings-row" style="margin-top:4px;">
-                <input type="text" id="sched-new-time" class="strat-settings-input" placeholder="Time (e.g. 7:00 AM)" style="width:100px;">
-                <input type="text" id="sched-new-activity" class="strat-settings-input" placeholder="Activity" style="flex:1;"
+              <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">Drag items above to reorder. Add new habits below:</div>
+              <div class="strat-settings-row" style="margin-top:4px; flex-wrap:wrap; gap:6px;">
+                <div style="display:flex; align-items:center; gap:4px;">
+                  <input type="time" id="sched-new-time" class="strat-settings-input" style="width:110px;">
+                  <label style="font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:3px; cursor:pointer; white-space:nowrap;">
+                    <input type="checkbox" id="sched-anytime" onchange="document.getElementById('sched-new-time').disabled=this.checked;"> Anytime
+                  </label>
+                </div>
+                <input type="text" id="sched-new-activity" class="strat-settings-input" placeholder="Activity" style="flex:1; min-width:120px;"
                   onkeydown="if(event.key==='Enter')App.addScheduleSlot()">
                 <button class="btn btn-primary btn-sm" onclick="App.addScheduleSlot()">Add</button>
               </div>
               ${userSchedule.map((slot, idx) => `
-                <div class="strat-settings-row" style="margin-top:4px;">
-                  <span style="font-size:12px; color:var(--text-dim); min-width:70px;">${slot.time}</span>
+                <div class="strat-settings-row" style="margin-top:4px;" draggable="true"
+                  ondragstart="App.onSchedDragStart(event, ${idx})"
+                  ondragover="event.preventDefault(); this.style.borderTop='2px solid var(--accent)'"
+                  ondragleave="this.style.borderTop=''"
+                  ondrop="this.style.borderTop=''; App.onSchedDrop(event, ${idx})">
+                  <span style="font-size:12px; color:var(--text-dim); min-width:70px; cursor:grab;">&#9776; ${slot.time === 'Anytime' ? 'Anytime' : (formatTime(slot.time) || slot.time)}</span>
                   <span style="font-size:12px; flex:1;">${escapeHTML(slot.activity)}</span>
                   <button class="btn btn-ghost btn-sm" onclick="App.removeScheduleSlot(${idx})" style="color:var(--red);">&times;</button>
                 </div>
@@ -1036,7 +1078,8 @@ const Views = {
       <p class="view-subtitle">Quick thoughts, ideas, anything — get it out of your head</p>
 
       <div style="margin-bottom:20px;">
-        <textarea id="capture-input" placeholder="What's on your mind? Use #tags to categorize" rows="3"></textarea>
+        <textarea id="capture-input" placeholder="What's on your mind? Use #tags to categorize (Enter to save, Ctrl+Enter for new line)" rows="3"
+          onkeydown="if(event.key==='Enter'){if(event.ctrlKey||event.shiftKey){return;}App.addCapture(); event.preventDefault();}"></textarea>
         <div style="margin-top:10px; display:flex; justify-content:space-between; align-items:center;">
           ${App.vaultAvailable ? `
             <label class="vault-toggle-label">
@@ -1068,10 +1111,21 @@ const Views = {
                 <button class="capture-action-btn" onclick="App.captureToTask('${c.id}')" title="Convert to task">&#8594;T</button>
                 <button class="item-delete" onclick="App.deleteCapture('${c.id}')">&times;</button>
               </div>
-              <div class="capture-text">${escapeHTML(c.text)}</div>
+              ${App._editingCapture === c.id ? `
+                <textarea id="edit-capture-${c.id}" class="capture-edit-area" rows="3" onkeydown="if(event.key==='Enter'&&!event.ctrlKey&&!event.shiftKey){App.saveEditCapture('${c.id}');event.preventDefault();} if(event.key==='Escape'){App._editingCapture=null;App.render();}">${escapeHTML(c.text)}</textarea>
+                <div style="display:flex;gap:6px;margin-top:6px;">
+                  <button class="btn btn-primary btn-sm" onclick="App.saveEditCapture('${c.id}')">Save</button>
+                  <button class="btn btn-ghost btn-sm" onclick="App._editingCapture=null;App.render();">Cancel</button>
+                </div>
+              ` : `
+                <div class="capture-text" ondblclick="App._editingCapture='${c.id}';App.render();setTimeout(()=>{const t=document.getElementById('edit-capture-${c.id}');if(t){t.focus();t.selectionStart=t.value.length;}},50);">${escapeHTML(c.text)}</div>
+              `}
               <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
                 <div class="capture-time">${formatDate(c.created)}</div>
-                ${tags.length ? `<div style="display:flex; gap:4px;">${tags.map(t => `<span class="tag-badge-sm">${t}</span>`).join('')}</div>` : ''}
+                <div style="display:flex; gap:4px; align-items:center;">
+                  ${App._editingCapture !== c.id ? `<button class="btn btn-ghost btn-sm" style="font-size:10px; padding:2px 6px;" onclick="App._editingCapture='${c.id}';App.render();setTimeout(()=>{const t=document.getElementById('edit-capture-${c.id}');if(t){t.focus();t.selectionStart=t.value.length;}},50);">Edit</button>` : ''}
+                  ${tags.length ? tags.map(t => `<span class="tag-badge-sm">${t}</span>`).join('') : ''}
+                </div>
               </div>
             </div>`;
           }).join('')}
@@ -1241,7 +1295,8 @@ const Views = {
       <p class="view-subtitle">Reflect, learn, grow — one entry at a time</p>
 
       <div style="margin-bottom:24px;">
-        <textarea id="journal-input" placeholder="What happened today? What did you learn?" rows="4"></textarea>
+        <textarea id="journal-input" placeholder="What happened today? What did you learn? (Enter to save, Ctrl+Enter for new line)" rows="4"
+          onkeydown="if(event.key==='Enter'){if(event.ctrlKey||event.shiftKey){return;}App.addJournal(); event.preventDefault();}"></textarea>
         <div style="margin-top:10px; display:flex; justify-content:space-between; align-items:center;">
           ${App.vaultAvailable ? `
             <label class="vault-toggle-label">
@@ -1259,8 +1314,19 @@ const Views = {
           ${entries.map(e => `
             <div class="journal-entry">
               <div class="journal-date">${formatDate(e.created)}</div>
-              <div class="journal-text">${escapeHTML(e.text)}</div>
-              <button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="App.deleteJournal('${e.id}')">Delete</button>
+              ${App._editingJournal === e.id ? `
+                <textarea id="edit-journal-${e.id}" class="journal-edit-area" rows="4" onkeydown="if(event.key==='Enter'&&!event.ctrlKey&&!event.shiftKey){App.saveEditJournal('${e.id}');event.preventDefault();} if(event.key==='Escape'){App._editingJournal=null;App.render();}">${escapeHTML(e.text)}</textarea>
+                <div style="display:flex;gap:6px;margin-top:6px;">
+                  <button class="btn btn-primary btn-sm" onclick="App.saveEditJournal('${e.id}')">Save</button>
+                  <button class="btn btn-ghost btn-sm" onclick="App._editingJournal=null;App.render();">Cancel</button>
+                </div>
+              ` : `
+                <div class="journal-text" ondblclick="App._editingJournal='${e.id}';App.render();setTimeout(()=>{const t=document.getElementById('edit-journal-${e.id}');if(t){t.focus();t.selectionStart=t.value.length;}},50);">${escapeHTML(e.text)}</div>
+                <div style="display:flex;gap:6px;margin-top:8px;">
+                  <button class="btn btn-ghost btn-sm" onclick="App._editingJournal='${e.id}';App.render();setTimeout(()=>{const t=document.getElementById('edit-journal-${e.id}');if(t){t.focus();t.selectionStart=t.value.length;}},50);">Edit</button>
+                  <button class="btn btn-ghost btn-sm" onclick="App.deleteJournal('${e.id}')">Delete</button>
+                </div>
+              `}
             </div>
           `).join('')}
         </div>
@@ -1374,40 +1440,44 @@ const Views = {
       `}
 
       ${achievedGoals.length ? `
-        <div class="strat-section-label" style="margin-top:24px; margin-bottom:8px; color:#a78bfa;">🏆 Achieved Goals</div>
-        <div class="item-list">
-          ${achievedGoals.map(g => `
-            <div class="card" style="opacity:0.9; border-left:3px solid #a78bfa;">
-              <div class="goal-header">
-                <span class="goal-title" style="color:var(--text);">✓ ${escapeHTML(g.text)}</span>
-                <span style="font-size:11px; color:#a78bfa;">${g.achievedDate || ''}</span>
+        <details style="margin-top:24px;">
+          <summary class="strat-section-label" style="margin-bottom:8px; color:#a78bfa; cursor:pointer; list-style:none;">🏆 Achieved Goals <span style="font-size:12px; opacity:0.7;">(${achievedGoals.length})</span></summary>
+          <div class="item-list">
+            ${achievedGoals.map(g => `
+              <div class="card" style="opacity:0.9; border-left:3px solid #a78bfa;">
+                <div class="goal-header">
+                  <span class="goal-title" style="color:var(--text);">✓ ${escapeHTML(g.text)}</span>
+                  <span style="font-size:11px; color:#a78bfa;">${g.achievedDate || ''}</span>
+                </div>
+                ${g.achievedReason ? `<div style="font-size:12px; color:var(--text-dim); margin-top:6px; padding:6px 8px; background:var(--bg-input); border-radius:6px; font-style:italic;">"${escapeHTML(g.achievedReason)}"</div>` : ''}
+                <div style="margin-top:8px; display:flex; justify-content:flex-end;">
+                  <button class="btn btn-ghost btn-sm" onclick="App.deleteGoal('${g.id}')">Remove</button>
+                </div>
               </div>
-              ${g.achievedReason ? `<div style="font-size:12px; color:var(--text-dim); margin-top:6px; padding:6px 8px; background:var(--bg-input); border-radius:6px; font-style:italic;">"${escapeHTML(g.achievedReason)}"</div>` : ''}
-              <div style="margin-top:8px; display:flex; justify-content:flex-end;">
-                <button class="btn btn-ghost btn-sm" onclick="App.deleteGoal('${g.id}')">Remove</button>
-              </div>
-            </div>
-          `).join('')}
-        </div>
+            `).join('')}
+          </div>
+        </details>
       ` : ''}
 
-      ${((data.goals || []).filter(g => g.gaveUp)).length ? `
-        <div class="strat-section-label" style="margin-top:24px; margin-bottom:8px; color:var(--text-dim);">Given Up Goals</div>
-        <div class="item-list">
-          ${(data.goals || []).filter(g => g.gaveUp).map(g => `
-            <div class="card" style="opacity:0.65; border-left:3px solid var(--border);">
-              <div class="goal-header">
-                <span class="goal-title" style="color:var(--text-dim); text-decoration:line-through;">${escapeHTML(g.text)}</span>
-                <span style="font-size:11px; color:var(--text-dim);">${g.gaveUpDate || ''}</span>
+      ${(() => { const gaveUp = (data.goals || []).filter(g => g.gaveUp); return gaveUp.length ? `
+        <details style="margin-top:24px;">
+          <summary class="strat-section-label" style="margin-bottom:8px; color:var(--text-dim); cursor:pointer; list-style:none;">Given Up Goals <span style="font-size:12px; opacity:0.7;">(${gaveUp.length})</span></summary>
+          <div class="item-list">
+            ${gaveUp.map(g => `
+              <div class="card" style="opacity:0.65; border-left:3px solid var(--border);">
+                <div class="goal-header">
+                  <span class="goal-title" style="color:var(--text-dim); text-decoration:line-through;">${escapeHTML(g.text)}</span>
+                  <span style="font-size:11px; color:var(--text-dim);">${g.gaveUpDate || ''}</span>
+                </div>
+                ${g.gaveUpReason ? `<div style="font-size:12px; color:var(--text-dim); margin-top:6px; padding:6px 8px; background:var(--bg-input); border-radius:6px; font-style:italic;">"${escapeHTML(g.gaveUpReason)}"</div>` : ''}
+                <div style="margin-top:8px; display:flex; justify-content:flex-end;">
+                  <button class="btn btn-ghost btn-sm" onclick="App.deleteGoal('${g.id}')">Remove</button>
+                </div>
               </div>
-              ${g.gaveUpReason ? `<div style="font-size:12px; color:var(--text-dim); margin-top:6px; padding:6px 8px; background:var(--bg-input); border-radius:6px; font-style:italic;">"${escapeHTML(g.gaveUpReason)}"</div>` : ''}
-              <div style="margin-top:8px; display:flex; justify-content:flex-end;">
-                <button class="btn btn-ghost btn-sm" onclick="App.deleteGoal('${g.id}')">Remove</button>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      ` : ''}
+            `).join('')}
+          </div>
+        </details>
+      ` : ''; })()}
     `;
   },
 
@@ -1504,7 +1574,7 @@ const Views = {
                 const maxBarH = 43;
                 const mainRow = `
                 <div class="gantt-row">
-                  <div class="gantt-label-wide gantt-proj-label" title="${escapeHTML(row.name)}" style="border-left:3px solid ${row.color}; cursor:pointer;" onclick="App.toggleGanttExpand('${row.id}')"><span style="color:${row.color};">${row.icon||'📋'}</span> <span style="color:var(--text); font-size:13px; font-weight:700;">${escapeHTML(row.name)}</span></div>
+                  <div class="gantt-label-wide gantt-proj-label" title="Click to ${isExpanded ? 'collapse' : 'expand'} sections" style="border-left:3px solid ${row.color}; cursor:pointer;" onclick="App.toggleGanttExpand('${row.id}')"><span class="gantt-expand-arrow">${isExpanded ? '▾' : '▸'}</span><span style="color:${row.color};">${row.icon||'📋'}</span> <span style="color:var(--text); font-size:13px; font-weight:700;">${escapeHTML(row.name)}</span></div>
                   ${ganttMonths.map((m, i) => {
                     const isDeadline = m.key === row.deadlineMonth;
                     const inRange = i <= row.endIdx;
@@ -1543,9 +1613,9 @@ const Views = {
                     </div>`;
                   }).join('')}
                 </div>`;
-                const sectionRows = isExpanded ? row.sections.filter(sec => sec.total > 0).map(sec => `
+                const sectionRows = isExpanded ? row.sections.filter(sec => sec.total > 0).map((sec, secI) => `
                 <div class="gantt-row gantt-section-row">
-                  <div class="gantt-label-wide gantt-section-label-cell" onclick="App.jumpToProjectSection('${row.id}')" style="cursor:pointer;" title="Go to project">
+                  <div class="gantt-label-wide gantt-section-label-cell" onclick="App.jumpToProjectSection('${row.id}', ${secI})" style="cursor:pointer;" title="Go to ${escapeHTML(sec.name)}">
                     <div style="display:flex;align-items:center;gap:6px;padding-left:12px;">
                       <span style="font-size:11px;font-weight:600;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;" title="${escapeHTML(sec.name)}">${escapeHTML(sec.name)}</span>
                       <span style="font-size:10px;color:var(--text-dim);white-space:nowrap;flex-shrink:0;">${sec.done}/${sec.total}</span>
@@ -1601,10 +1671,11 @@ const Views = {
           }).join('')}
         </div>
 
-        <!-- Notes -->
+        <!-- Reflections -->
         <div class="card">
-          <div class="strat-section-label">Notes \u2014 ${mLabel}</div>
-          <textarea id="strat-notes" placeholder="What went well? What needs adjustment?"
+          <div class="strat-section-label">Reflections \u2014 ${mLabel}</div>
+          <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">What went well? What needs adjustment? These are saved automatically.</div>
+          <textarea id="strat-notes" placeholder="Write your reflections for this month..."
             onchange="App.saveStrategyNote('${month}', this.value)"
             rows="3" style="min-height:70px;">${escapeHTML(s.notes[month] || '')}</textarea>
         </div>
@@ -1703,26 +1774,30 @@ const Views = {
                 </div>`;
               }).join('') : '<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">No active goals — add one above.</div>'}
               ${achievedGoals.length ? `
-                <div style="font-size:11px;font-weight:700;color:#a78bfa;margin-top:10px;margin-bottom:6px;">🏆 Achieved</div>
-                ${achievedGoals.map(g => `
-                  <div style="padding:6px 8px;margin-bottom:4px;background:var(--bg-input);border-radius:6px;border-left:2px solid #a78bfa;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;">
-                      <span style="font-size:12px;color:#a78bfa;">✓ ${escapeHTML(g.text)}</span>
-                      <span style="font-size:10px;color:var(--text-dim);">${g.achievedDate || ''}</span>
-                    </div>
-                    ${g.achievedReason ? `<div style="font-size:11px;color:var(--text-dim);margin-top:2px;font-style:italic;">"${escapeHTML(g.achievedReason)}"</div>` : ''}
-                  </div>`).join('')}
+                <details style="margin-top:10px;">
+                  <summary style="font-size:11px;font-weight:700;color:#a78bfa;margin-bottom:6px;cursor:pointer;list-style:none;">🏆 Achieved <span style="opacity:0.7;">(${achievedGoals.length})</span></summary>
+                  ${achievedGoals.map(g => `
+                    <div style="padding:6px 8px;margin-bottom:4px;background:var(--bg-input);border-radius:6px;border-left:2px solid #a78bfa;">
+                      <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span style="font-size:12px;color:#a78bfa;">✓ ${escapeHTML(g.text)}</span>
+                        <span style="font-size:10px;color:var(--text-dim);">${g.achievedDate || ''}</span>
+                      </div>
+                      ${g.achievedReason ? `<div style="font-size:11px;color:var(--text-dim);margin-top:2px;font-style:italic;">"${escapeHTML(g.achievedReason)}"</div>` : ''}
+                    </div>`).join('')}
+                </details>
               ` : ''}
               ${gaveUpGoals.length ? `
-                <div style="font-size:11px;font-weight:700;color:var(--text-dim);margin-top:10px;margin-bottom:6px;">Given Up</div>
-                ${gaveUpGoals.map(g => `
-                  <div style="padding:6px 8px;margin-bottom:4px;background:var(--bg-input);border-radius:6px;opacity:0.6;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;">
-                      <span style="font-size:12px;color:var(--text-dim);text-decoration:line-through;">${escapeHTML(g.text)}</span>
-                      <span style="font-size:10px;color:var(--text-dim);">${g.gaveUpDate || ''}</span>
-                    </div>
-                    ${g.gaveUpReason ? `<div style="font-size:11px;color:var(--text-dim);margin-top:2px;font-style:italic;">"${escapeHTML(g.gaveUpReason)}"</div>` : ''}
-                  </div>`).join('')}
+                <details style="margin-top:10px;">
+                  <summary style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:6px;cursor:pointer;list-style:none;">Given Up <span style="opacity:0.7;">(${gaveUpGoals.length})</span></summary>
+                  ${gaveUpGoals.map(g => `
+                    <div style="padding:6px 8px;margin-bottom:4px;background:var(--bg-input);border-radius:6px;opacity:0.6;">
+                      <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span style="font-size:12px;color:var(--text-dim);text-decoration:line-through;">${escapeHTML(g.text)}</span>
+                        <span style="font-size:10px;color:var(--text-dim);">${g.gaveUpDate || ''}</span>
+                      </div>
+                      ${g.gaveUpReason ? `<div style="font-size:11px;color:var(--text-dim);margin-top:2px;font-style:italic;">"${escapeHTML(g.gaveUpReason)}"</div>` : ''}
+                    </div>`).join('')}
+                </details>
               ` : ''}
             `;
           })()}
@@ -1765,7 +1840,7 @@ const Views = {
             return `<button
               class="strat-month-pill ${isActive ? 'active' : ''}"
               onclick="App.setStrategyProject('${cl.id}')"
-              style="${isActive ? `border-color:${clPillColor}; color:${clPillColor};` : ''}">
+              style="${isActive ? `background:${clPillColor}; border-color:${clPillColor}; color:${contrastColor(clPillColor.startsWith('var') ? '#7c6ff7' : clPillColor)};` : ''}">
               ${escapeHTML(cl.icon || '📋')} ${escapeHTML(cl.name)}
               <span style="font-size:10px; opacity:0.7; margin-left:4px;">${revDone}/${allItems.length}</span>
             </button>`;
@@ -1900,7 +1975,7 @@ const Views = {
                   </summary>
                   <div style="padding-top:6px;">
                     ${sec.items.map((item, itemIdx) => {
-                      const revs = item.revisions || (item.done ? [{date: new Date(activeCL.uploadedAt).toISOString().slice(0,10)}] : []);
+                      const revs = item.revisions || (item.done ? [{date: localDateKey(new Date(activeCL.uploadedAt))}] : []);
                       const itemStatus = item.status || (item.done ? 'weak' : 'not-started');
                       const statusColor = statusColors[itemStatus] || 'var(--text-dim)';
                       const isEditingIt = App._editingItem && App._editingItem.clId === activeCL.id && App._editingItem.secIdx === secIdx && App._editingItem.itemIdx === itemIdx;
@@ -1980,10 +2055,10 @@ const Views = {
           const dl = proj.deadline ? new Date(proj.deadline) : null;
           const dLeft = dl && !isNaN(dl) ? Math.max(0, Math.ceil((dl - new Date()) / 864e5)) : null;
           const clColor = proj.color || '#7c6ff7';
-          return `<div class="stat-card" style="border-color:${clColor}40; cursor:pointer;" onclick="App.strategyTab='projects'; App.strategyProject='${proj.id}'; App.render();">
-            <div style="font-size:11px; color:${clColor}; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">${escapeHTML(proj.icon || '')} ${escapeHTML(proj.name)}</div>
-            <div class="stat-number" style="color:${clColor}; font-size:28px;">${dLeft !== null ? dLeft : '\u2014'}</div>
-            <div class="stat-label">${dLeft !== null ? 'days left' : 'no deadline'}</div>
+          return `<div class="stat-card" style="background:${clColor}; border-color:${clColor}; cursor:pointer;" onclick="App.setStrategyProject('${proj.id}')">
+            <div style="font-size:11px; color:${contrastColor(clColor)}; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; opacity:0.85;">${escapeHTML(proj.icon || '')} ${escapeHTML(proj.name)}</div>
+            <div class="stat-number" style="color:${contrastColor(clColor)}; font-size:28px;">${dLeft !== null ? dLeft : '\u2014'}</div>
+            <div class="stat-label" style="color:${contrastColor(clColor)}; opacity:0.7;">${dLeft !== null ? 'days left' : 'no deadline'}</div>
           </div>`;
         }).join('')}
         <div class="stat-card">
@@ -2176,7 +2251,7 @@ const Views = {
       for (let d = 0; d < 7; d++) {
         const cellDate = new Date(startDate);
         cellDate.setDate(startDate.getDate() + w * 7 + d);
-        const dateStr = cellDate.toISOString().slice(0, 10);
+        const dateStr = localDateKey(cellDate);
         const hasEntry = loggingSet.has(dateStr);
         const studyMins = studyMap[dateStr] || 0;
         const isFuture = cellDate > today;
@@ -2212,7 +2287,7 @@ const Views = {
     const _appLessons = [];
     for (const cap of (data.captures || [])) {
       if (/#lesson/i.test(cap.text || '')) {
-        _appLessons.push({ date: cap.created ? new Date(cap.created).toISOString().slice(0,10) : '—', text: (cap.text||'').replace(/#\w+/g,'').trim(), src: '📱' });
+        _appLessons.push({ date: cap.created ? localDateKey(new Date(cap.created)) : '—', text: (cap.text||'').replace(/#\w+/g,'').trim(), src: '📱' });
       }
     }
     for (const j of (data.journal || [])) {
@@ -2278,7 +2353,7 @@ const Views = {
         for (let i = 13; i >= 0; i--) {
           const d = new Date(now2);
           d.setDate(d.getDate() - i);
-          dayMap[d.toISOString().slice(0, 10)] = 0;
+          dayMap[localDateKey(d)] = 0;
         }
         for (const s of sessions) {
           if (s.date in dayMap) dayMap[s.date] += s.duration;
@@ -2383,7 +2458,7 @@ const Views = {
           const sessions = (Store.get().timer || {}).sessions || [];
           const thisWeek = sessions.filter(s => {
             const d = new Date(); d.setDate(d.getDate() - 7);
-            return s.date >= d.toISOString().slice(0, 10);
+            return s.date >= localDateKey(d);
           });
           const weekMins = thisWeek.reduce((s, x) => s + (x.duration || 0), 0);
           const totalMins = sessions.reduce((s, x) => s + (x.duration || 0), 0);
@@ -2415,7 +2490,7 @@ const Views = {
           if (!shown.length) return '<div style="font-size:12px; color:var(--text-dim);">No sessions yet. Start a timer!</div>';
           return shown.map(s => `
             <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border); flex-wrap:wrap;">
-              <span style="font-size:11px; color:var(--text-dim); min-width:80px;">${new Date(s.ts).toLocaleDateString('en', { month:'short', day:'numeric' })}</span>
+              <span style="font-size:11px; color:var(--text-dim); min-width:80px;">${new Date(s.ts).toLocaleDateString(undefined, { month:'short', day:'numeric' })}</span>
               <span style="font-size:12px; font-weight:600; min-width:45px;">${s.duration}min</span>
               <span class="tag-badge-sm">${escapeHTML(s.type || 'Study')}</span>
               ${s.note ? `<span style="font-size:12px; color:var(--text-dim); flex:1;">${escapeHTML(s.note)}</span>` : ''}
@@ -2772,7 +2847,7 @@ const Views = {
     const viewYear = App._calYear ?? now.getFullYear();
     const firstDay = new Date(viewYear, viewMonth, 1).getDay();
     const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-    const monthName = new Date(viewYear, viewMonth).toLocaleString('en', { month: 'long', year: 'numeric' });
+    const monthName = new Date(viewYear, viewMonth).toLocaleString(undefined, { month: 'long', year: 'numeric' });
     const todayStr = todayKey();
 
     // Build data maps for the month
@@ -2798,7 +2873,7 @@ const Views = {
     // Captures per day
     const captureMap = {};
     for (const c of data.captures) {
-      const d = new Date(c.created).toISOString().slice(0, 10);
+      const d = localDateKey(new Date(c.created));
       if (!captureMap[d]) captureMap[d] = [];
       captureMap[d].push(c);
     }
@@ -2808,7 +2883,7 @@ const Views = {
     for (const j of data.journal) activityDays.add(j.date);
     for (const s of (data.timer?.sessions || [])) activityDays.add(s.date);
     for (const c of data.captures) {
-      const d = new Date(c.created).toISOString().slice(0, 10);
+      const d = localDateKey(new Date(c.created));
       activityDays.add(d);
     }
     for (const e of (App.vaultDailyEntries || [])) activityDays.add(e.date);
@@ -2834,7 +2909,7 @@ const Views = {
     let currentStreak = 0;
     const checkDate = new Date();
     for (let i = 0; i < 365; i++) {
-      const dk = checkDate.toISOString().slice(0, 10);
+      const dk = localDateKey(checkDate);
       if (activityDays.has(dk)) { currentStreak++; checkDate.setDate(checkDate.getDate() - 1); }
       else break;
     }
@@ -2857,10 +2932,10 @@ const Views = {
     // Grace-for-today: if today has no entry, start counting from yesterday
     let journalStreak = 0;
     { const d = new Date();
-      const todayDk = d.toISOString().slice(0, 10);
+      const todayDk = localDateKey(d);
       if (!journalMap[todayDk] && !vaultJournalMap[todayDk]) d.setDate(d.getDate() - 1);
       for (let i = 0; i < 365; i++) {
-        const dk = d.toISOString().slice(0, 10);
+        const dk = localDateKey(d);
         if (journalMap[dk] || vaultJournalMap[dk]) { journalStreak++; d.setDate(d.getDate() - 1); }
         else break;
       }
@@ -2871,11 +2946,11 @@ const Views = {
     const calUserSched = data.strategy?.schedule || [];
     let habitStreak = 0;
     { const d = new Date();
-      const todayDk = d.toISOString().slice(0, 10);
+      const todayDk = localDateKey(d);
       const todayLog = (data.scheduleLog || {})[todayDk] || {};
       if (!calUserSched.some((_, idx) => todayLog['slot-' + idx])) d.setDate(d.getDate() - 1);
       for (let i = 0; i < 365; i++) {
-        const dk = d.toISOString().slice(0, 10);
+        const dk = localDateKey(d);
         const dayLog = (data.scheduleLog || {})[dk] || {};
         if (calUserSched.some((_, idx) => dayLog['slot-' + idx])) { habitStreak++; d.setDate(d.getDate() - 1); }
         else break;
@@ -2984,7 +3059,7 @@ const Views = {
       </div>
 
       <div class="card">
-        <div class="strat-section-label" style="margin-bottom:10px;">${new Date(sel + 'T12:00:00').toLocaleDateString('en', { weekday:'long', month:'long', day:'numeric' })}</div>
+        <div class="strat-section-label" style="margin-bottom:10px;">${new Date(sel + 'T12:00:00').toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric' })}</div>
         ${selVaultJournal ? `
           <div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:10px; padding:8px; background:var(--bg-input); border-radius:8px; border-left:3px solid var(--green);">
             <span style="font-size:13px;">📓</span>
@@ -3093,6 +3168,9 @@ const Views = {
     return `
       <h1 class="view-title">Shortcuts & Guide</h1>
       <p class="view-subtitle">How to use Nexus</p>
+      <div style="margin-bottom:16px;">
+        <button class="btn btn-primary btn-sm" onclick="App.startTutorial()">&#128218; Take Interactive Tour</button>
+      </div>
 
       <div class="card">
         <div class="strat-section-label">Keyboard Shortcuts</div>
@@ -3412,6 +3490,13 @@ const Views = {
           <div style="font-size:12px; font-weight:600; color:var(--text); margin-bottom:4px;">Onboarding</div>
           <div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">Re-run the step-by-step setup wizard. Your existing data will not be deleted.</div>
           <button class="btn btn-ghost btn-sm" onclick="App.rerunSetup()">&#9654; Replay Setup Wizard</button>
+          <button class="btn btn-ghost btn-sm" onclick="App.startTutorial()" style="margin-left:8px;">&#128218; Interactive Tour</button>
+        </div>
+        <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
+          <div style="font-size:12px; font-weight:600; color:var(--text); margin-bottom:4px;">Update Nexus</div>
+          <div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">Pull the latest version from GitHub. Your data will be backed up automatically.</div>
+          <button class="btn btn-primary btn-sm" id="update-nexus-btn" onclick="App.checkForUpdates()">&#8635; Check for Updates</button>
+          <span id="update-status" style="font-size:11px; color:var(--text-dim); margin-left:8px;"></span>
         </div>
       </div>
 
@@ -3457,6 +3542,25 @@ const App = {
   _editingKbArea: null,
   weeklyReview: null,
   showShortcutHelp: false,
+
+  // ─── Interactive Tutorial State ────────────────
+  _tutorialActive: false,
+  _tutorialStep: 0,
+  _tutorialSteps: [
+    { id: 'welcome', target: null, title: 'Welcome to Nexus', body: 'This quick tour will walk you through the key features of your personal evolution hub. Use the arrows or buttons to navigate — you can skip at any time.', position: 'center' },
+    { id: 'sidebar', target: '#nav-links', title: 'Sidebar Navigation', body: 'This is your command center. Each item opens a different view. You can show/hide items from Settings.', position: 'right' },
+    { id: 'dashboard', target: '[data-view="dashboard"]', title: 'Dashboard', body: 'Your home base — see today\'s stats, open tasks, recent captures, and project progress at a glance.', position: 'right', view: 'dashboard' },
+    { id: 'today', target: '[data-view="today"]', title: 'Today View', body: 'Your daily cockpit: streaming tasks, habits, journal, and a focus timer all in one place.', position: 'right', view: 'today' },
+    { id: 'capture', target: '[data-view="capture"]', title: 'Capture', body: 'Quickly jot down ideas, notes, or links. Tag them with #hashtags for easy filtering later.', position: 'right', view: 'capture' },
+    { id: 'tasks', target: '[data-view="tasks"]', title: 'Tasks', body: 'Manage your to-dos with priorities, due dates, categories, and recurring schedules.', position: 'right', view: 'tasks' },
+    { id: 'strategy', target: '[data-view="strategy"]', title: 'Strategy', body: 'Plan long-term with projects, milestones, Gantt charts, and weekly schedules.', position: 'right', view: 'strategy' },
+    { id: 'vault', target: '[data-view="vault"]', title: 'Vault', body: 'Browse and search your linked Obsidian vault. Read, edit, and sync markdown files directly.', position: 'right' },
+    { id: 'theme', target: '#theme-toggle', title: 'Theme Toggle', body: 'Switch between dark and light mode instantly. Your preference is saved automatically.', position: 'top' },
+    { id: 'fab', target: '.fab-btn', title: 'Quick Capture', body: 'This floating button lets you capture a thought from any view without leaving your current page.', position: 'left', view: 'dashboard' },
+    { id: 'shortcuts', target: null, title: 'Keyboard Shortcuts', body: 'Power users: Ctrl+Shift+D for Dashboard, Y for Today, C for Capture, T for Tasks, J for Journal, V for Vault, F for Focus Mode, and ? for the full shortcut list.', position: 'center' },
+    { id: 'settings', target: '[data-view="settings"]', title: 'Settings', body: 'Customize everything: theme, accent color, font size, vault connection, data export/import, and more.', position: 'right', view: 'settings' },
+    { id: 'done', target: null, title: 'You\'re All Set!', body: 'You can replay this tutorial any time from Settings. Enjoy using Nexus!', position: 'center' },
+  ],
 
   async init() {
     // Prevent multiple tabs
@@ -3517,6 +3621,11 @@ const App = {
     this.bindExport();
     this._applyNavVisibility();
     this.render();
+    // Offer tutorial to first-time users
+    if (!savedData._tutorialSeen) {
+      setTimeout(() => this._offerTutorial(), 600);
+      Store.update(d => { d._tutorialSeen = true; });
+    }
     // Pre-fetch vault data in background (only if vault is configured)
     if (this.serverConfig && this.serverConfig.useVault && this.serverConfig.vaultPath) {
       try {
@@ -3617,7 +3726,7 @@ const App = {
     const hasIt = this._setupProjects.find(p => p._template === 'masters');
     if (!hasIt) {
       const d = new Date(); d.setMonth(d.getMonth() + 12);
-      const deadline = d.toISOString().slice(0, 7);
+      const deadline = localDateKey(d).slice(0, 7);
       this._setupProjects.unshift({ id: 'template-masters', name: "Master's Exam", icon: '\uD83C\uDF93', color: '#7c6ff7', deadline, _template: 'masters' });
     }
     this._renderSetup();
@@ -3660,7 +3769,7 @@ const App = {
 
     } else if (step === 2) {
       const projects = this._setupProjects;
-      const deadlineDefault = (() => { const d = new Date(); d.setMonth(d.getMonth() + 12); return d.toISOString().slice(0,7); })();
+      const deadlineDefault = (() => { const d = new Date(); d.setMonth(d.getMonth() + 12); return localDateKey(d).slice(0,7); })();
       content.innerHTML = `
         ${progressBar}
         <div style="text-align:center; margin-bottom:20px;">
@@ -4002,30 +4111,50 @@ const App = {
     window.location.reload();
   },
 
+  navigateTo(view, pushHistory, stateExtra) {
+    this.currentView = view;
+    document.querySelectorAll('#nav-links li').forEach(l => l.classList.toggle('active', l.dataset.view === view));
+    document.getElementById('sidebar')?.classList.remove('open');
+    document.getElementById('sidebar-overlay')?.classList.remove('show');
+    if (pushHistory !== false) {
+      const state = { view, ...(stateExtra || {}) };
+      history.pushState(state, '', '#' + view);
+    }
+    if (view === 'vault' && this.vaultMode === 'browse') {
+      this.render();
+      this.vaultNavigate(this.vaultPath);
+    } else if (view === 'growth' && !this.growthData) {
+      this.render();
+      VaultAPI.getGrowth().then(data => { this.growthData = data; this.render(); }).catch(() => {});
+    } else if (view === 'journal' || view === 'today' || view === 'calendar') {
+      this.render();
+      this.loadVaultDailyEntries();
+    } else {
+      this.render();
+    }
+  },
+
   bindNav() {
     document.querySelectorAll('#nav-links li').forEach(li => {
-      li.addEventListener('click', () => {
-        this.currentView = li.dataset.view;
-        document.querySelectorAll('#nav-links li').forEach(l => l.classList.remove('active'));
-        li.classList.add('active');
-        // Close mobile sidebar
-        document.getElementById('sidebar')?.classList.remove('open');
-        document.getElementById('sidebar-overlay')?.classList.remove('show');
-        // Load vault files when entering vault view
-        if (li.dataset.view === 'vault' && this.vaultMode === 'browse') {
-          this.render();
-          this.vaultNavigate(this.vaultPath);
-        } else if (li.dataset.view === 'growth' && !this.growthData) {
-          this.render();
-          VaultAPI.getGrowth().then(data => { this.growthData = data; this.render(); }).catch(() => {});
-        } else if (li.dataset.view === 'journal' || li.dataset.view === 'today' || li.dataset.view === 'calendar') {
-          this.render();
-          this.loadVaultDailyEntries();
-        } else {
-          this.render();
-        }
-      });
+      li.addEventListener('click', () => this.navigateTo(li.dataset.view));
     });
+    // Handle browser back/forward
+    window.addEventListener('popstate', (e) => {
+      const state = e.state || {};
+      const view = state.view || (location.hash ? location.hash.slice(1) : 'dashboard');
+      // Restore strategy sub-state
+      if (view === 'strategy') {
+        this.strategyTab = state.strategyTab || 'roadmap';
+        this.strategyProject = state.strategyProject || null;
+      }
+      if (Views[view]) {
+        this.navigateTo(view, false);
+      } else {
+        this.navigateTo('dashboard', false);
+      }
+    });
+    // Set initial history state
+    history.replaceState({ view: this.currentView }, '', '#' + this.currentView);
   },
 
   bindExport() {
@@ -4142,10 +4271,30 @@ const App = {
       if (this.fabExpanded) {
         setTimeout(() => document.getElementById('fab-input')?.focus(), 50);
       }
+      // Re-position tutorial spotlight after render
+      if (this._tutorialActive) {
+        requestAnimationFrame(() => this._positionTutorialTooltip());
+      }
     }
   },
 
   // ─── Capture Actions ──────────────────────────
+  _editingCapture: null,
+
+  saveEditCapture(id) {
+    const el = document.getElementById('edit-capture-' + id);
+    if (!el) return;
+    const text = el.value.trim();
+    if (!text) { toast('Cannot be empty'); return; }
+    Store.update(d => {
+      const c = d.captures.find(c => c.id === id);
+      if (c) c.text = text;
+    });
+    this._editingCapture = null;
+    toast('Capture updated');
+    this.render();
+  },
+
   deleteCapture(id) {
     if (!confirm('Delete this capture?')) return;
     Store.update(d => d.captures = d.captures.filter(c => c.id !== id));
@@ -4325,7 +4474,7 @@ const App = {
       for (let i = 0; i < 45; i++) {
         const d = new Date(today);
         d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().slice(0, 10);
+        const dateStr = localDateKey(d);
         const data = await VaultAPI.getDaily(dateStr);
         if (data.found && data.lines.length > 0) {
           entries.push({ date: data.date, lines: data.lines });
@@ -4349,6 +4498,22 @@ const App = {
       VaultAPI.addDaily(text).then(() => this.loadVaultDailyEntries()).catch(() => {});
     }
     toast('Journal entry saved');
+    this.render();
+  },
+
+  _editingJournal: null,
+
+  saveEditJournal(id) {
+    const el = document.getElementById('edit-journal-' + id);
+    if (!el) return;
+    const text = el.value.trim();
+    if (!text) { toast('Cannot be empty'); return; }
+    Store.update(d => {
+      const j = d.journal.find(j => j.id === id);
+      if (j) j.text = text;
+    });
+    this._editingJournal = null;
+    toast('Journal updated');
     this.render();
   },
 
@@ -4382,7 +4547,7 @@ const App = {
       goal.current = Math.max(0, goal.current + amount);
       if (!wasAchieved && goal.current >= goal.target && goal.target > 0) {
         goal.achieved = true;
-        goal.achievedDate = new Date().toISOString().slice(0, 10);
+        goal.achievedDate = localDateKey();
         justAchieved = true;
       }
     });
@@ -4403,7 +4568,7 @@ const App = {
       const g = d.goals.find(g => g.id === id);
       if (!g) return;
       g.achieved = true;
-      g.achievedDate = g.achievedDate || new Date().toISOString().slice(0, 10);
+      g.achievedDate = g.achievedDate || localDateKey();
       g.achievedReason = reason;
     });
     this._goalPrompt = null;
@@ -4418,7 +4583,7 @@ const App = {
       const g = d.goals.find(g => g.id === id);
       if (!g) return;
       g.gaveUp = true;
-      g.gaveUpDate = new Date().toISOString().slice(0, 10);
+      g.gaveUpDate = localDateKey();
       g.gaveUpReason = reason;
     });
     this._goalPrompt = null;
@@ -4488,6 +4653,11 @@ const App = {
 
   setStrategyTab(t) {
     this.strategyTab = t;
+    if (t === 'projects') {
+      history.pushState({ view: 'strategy', strategyTab: 'projects', strategyProject: this.strategyProject }, '', '#strategy');
+    } else {
+      history.pushState({ view: 'strategy', strategyTab: 'roadmap' }, '', '#strategy');
+    }
     this.render();
   },
 
@@ -4665,17 +4835,41 @@ const App = {
     this.render();
   },
 
-  jumpToProjectSection(projectId) {
+  jumpToProjectSection(projectId, sectionIdx) {
     this.currentView = 'strategy';
     this.strategyTab = 'projects';
     this.strategyProject = projectId;
+    this._scrollToSection = sectionIdx;
+    history.pushState({ view: 'strategy', strategyTab: 'projects', strategyProject: projectId }, '', '#strategy');
     this.render();
+    if (typeof sectionIdx === 'number') {
+      setTimeout(() => {
+        const details = document.querySelectorAll('#content details');
+        if (details[sectionIdx]) {
+          details[sectionIdx].open = true;
+          details[sectionIdx].scrollIntoView({ behavior: 'smooth', block: 'start' });
+          details[sectionIdx].style.outline = '2px solid var(--accent)';
+          details[sectionIdx].style.borderRadius = '6px';
+          setTimeout(() => { details[sectionIdx].style.outline = ''; }, 2000);
+        }
+        this._scrollToSection = null;
+      }, 100);
+    }
   },
 
   setStrategyProject(id) {
+    this.strategyTab = 'projects';
     this.strategyProject = id;
     this._projAddOpen = false;
+    history.pushState({ view: 'strategy', strategyTab: 'projects', strategyProject: id }, '', '#strategy');
     this.render();
+  },
+
+  openStrategyProject(id) {
+    // Navigate from any view → strategy/projects/project with proper history chain
+    this.strategyTab = 'projects';
+    this.strategyProject = id;
+    this.navigateTo('strategy', true, { strategyTab: 'projects', strategyProject: id });
   },
 
   addBlankProject(name) {
@@ -4718,7 +4912,7 @@ const App = {
       if (result.success) {
         Store.update(d => {
           const c = (d.checklists || []).find(c => c.id === clId);
-          if (c) c.lastVaultSync = new Date().toISOString().slice(0, 10);
+          if (c) c.lastVaultSync = localDateKey();
         });
         if (!silent) toast(`Synced "${cl.name}" → vault`);
         this.render();
@@ -4736,7 +4930,7 @@ const App = {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `obsidian_vault_${new Date().toISOString().slice(0,10)}.zip`;
+      a.download = `obsidian_vault_${localDateKey()}.zip`;
       a.click();
       URL.revokeObjectURL(url);
     } catch { toast('Export failed'); }
@@ -4751,7 +4945,7 @@ const App = {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `nexus_project_${new Date().toISOString().slice(0,10)}.zip`;
+      a.download = `nexus_project_${localDateKey()}.zip`;
       a.click();
       URL.revokeObjectURL(url);
     } catch { toast('Export failed'); }
@@ -5115,7 +5309,7 @@ const App = {
       d.strategy.projects.push({ id: projId, name, deadline, color, icon });
     });
     if (App.vaultAvailable) {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localDateKey();
       const fileName = name.replace(/[/\\?%*:|"<>]/g, '-') + '.md';
       const initContent = `# ${name}\n\nCreated: ${today}\nDeadline: ${deadline}\n\n`;
       fetch('/api/vault/file', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -5282,7 +5476,7 @@ const App = {
     const data = Store.get();
     const now = new Date();
     const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7);
-    const weekStr = weekAgo.toISOString().slice(0, 10);
+    const weekStr = localDateKey(weekAgo);
 
     // Journal entries this week
     const journalThisWeek = data.journal.filter(j => j.date >= weekStr);
@@ -5780,13 +5974,32 @@ const App = {
   addScheduleSlot() {
     const timeInput = document.getElementById('sched-new-time');
     const actInput = document.getElementById('sched-new-activity');
-    const time = timeInput?.value.trim();
+    const anytimeBox = document.getElementById('sched-anytime');
+    const isAnytime = anytimeBox?.checked;
+    const rawTime = timeInput?.value.trim();
     const activity = actInput?.value.trim();
-    if (!time || !activity) return;
+    if (!activity) { toast('Enter an activity name'); return; }
+    let time;
+    let sortKey;
+    if (isAnytime) {
+      time = 'Anytime';
+      sortKey = 'zz:zz'; // sort after all timed items
+    } else if (rawTime) {
+      // Store raw 24h (HH:MM) for reliable sorting; display uses locale format
+      time = rawTime; // store as "HH:MM"
+      sortKey = rawTime;
+    } else {
+      toast('Pick a time or check Anytime'); return;
+    }
     Store.update(d => {
       if (!d.strategy.schedule) d.strategy.schedule = [...WEEKLY_TEMPLATE];
-      d.strategy.schedule.push({ time, activity, stream: null });
-      d.strategy.schedule.sort((a, b) => a.time.localeCompare(b.time));
+      d.strategy.schedule.push({ time, activity, stream: null, sortKey });
+      // Sort: timed items by 24h key, Anytime items at the end
+      d.strategy.schedule.sort((a, b) => {
+        const ka = a.sortKey || (a.time === 'Anytime' ? 'zz:zz' : a.time);
+        const kb = b.sortKey || (b.time === 'Anytime' ? 'zz:zz' : b.time);
+        return ka.localeCompare(kb);
+      });
     });
     this.render();
   },
@@ -5809,7 +6022,7 @@ const App = {
       const interval = intervals[t.status] || 7;
       const last = new Date(t.lastStudied);
       last.setDate(last.getDate() + interval);
-      return last.toISOString().slice(0, 10) <= today;
+      return localDateKey(last) <= today;
     });
   },
 
@@ -6074,7 +6287,27 @@ const App = {
     this.render();
   },
 
-  // ─── Habit Drag Reorder ─────────────────────
+  // ─── Schedule/Habit Drag Reorder ────────────
+  _schedDragIdx: null,
+
+  onSchedDragStart(e, idx) {
+    this._schedDragIdx = idx;
+    e.dataTransfer.effectAllowed = 'move';
+  },
+
+  onSchedDrop(e, idx) {
+    e.preventDefault();
+    const from = this._schedDragIdx;
+    if (from === null || from === idx) return;
+    Store.update(d => {
+      const arr = d.strategy.schedule || [];
+      const item = arr.splice(from, 1)[0];
+      arr.splice(idx, 0, item);
+    });
+    this._schedDragIdx = null;
+    this.render();
+  },
+
   onHabitDragStart(e, idx) {
     this._habitDragIdx = idx;
     e.dataTransfer.effectAllowed = 'move';
@@ -6135,6 +6368,34 @@ const App = {
     const isLight = theme === 'light';
     btn.querySelector('.theme-toggle-icon').innerHTML = isLight ? '&#9788;' : '&#9790;';
     btn.querySelector('.theme-toggle-label').textContent = isLight ? 'Light mode' : 'Dark mode';
+  },
+
+  async checkForUpdates() {
+    const btn = document.getElementById('update-nexus-btn');
+    const status = document.getElementById('update-status');
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = 'Updating...';
+    try {
+      const res = await fetch('/api/update', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        const msg = data.output || '';
+        if (msg.includes('Already up to date') || msg.includes('Already up-to-date')) {
+          if (status) status.textContent = 'Already up to date!';
+          toast('Nexus is already up to date');
+        } else {
+          if (status) status.innerHTML = '<span style="color:var(--green);">Updated! Reload to apply.</span>';
+          toast('Updated! Reloading...');
+          setTimeout(() => window.location.reload(), 1500);
+        }
+      } else {
+        if (status) status.innerHTML = `<span style="color:var(--red);">Failed: ${escapeHTML(data.error || 'Unknown error')}</span>`;
+        toast('Update failed');
+      }
+    } catch (err) {
+      if (status) status.innerHTML = '<span style="color:var(--red);">Network error</span>';
+    }
+    if (btn) btn.disabled = false;
   },
 
   setAccentColor(color) {
@@ -6207,7 +6468,7 @@ const App = {
     const noTag = [];
     for (const c of data.captures) {
       const tags = (c.text.match(/#\w+/g) || []);
-      const date = c.created ? new Date(c.created).toISOString().slice(0, 10) : '?';
+      const date = c.created ? localDateKey(new Date(c.created)) : '?';
       if (tags.length) {
         for (const t of tags) {
           if (!byTag[t]) byTag[t] = [];
@@ -6262,7 +6523,7 @@ const App = {
   _patchGrowthTags(text) {
     const tags = (text.match(/#(\w+)/g) || []).map(t => t.slice(1).toLowerCase());
     if (!tags.length || !this.growthData) return;
-    const month = new Date().toISOString().slice(0, 7);
+    const month = localDateKey().slice(0, 7);
     if (!this.growthData.tagTrends) this.growthData.tagTrends = {};
     for (const tag of tags) {
       if (!this.growthData.tagTrends[tag]) this.growthData.tagTrends[tag] = {};
@@ -6284,11 +6545,231 @@ const App = {
     toast('Captured');
     this.render();
   },
+
+  // ─── Interactive Tutorial ──────────────────────
+  startTutorial() {
+    this._tutorialActive = true;
+    this._tutorialStep = 0;
+    this.showShortcutHelp = false;
+    this.fabExpanded = false;
+    // Create persistent overlay on body (outside #content so render() won't destroy it)
+    let overlay = document.getElementById('tutorial-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'tutorial-overlay';
+      document.body.appendChild(overlay);
+    }
+    // Remove any tutorial offer modal
+    document.getElementById('tutorial-offer')?.remove();
+    this._tutorialResizeHandler = () => { if (this._tutorialActive) this._positionTutorialTooltip(); };
+    window.addEventListener('resize', this._tutorialResizeHandler);
+    this._renderTutorialStep();
+  },
+
+  endTutorial() {
+    this._tutorialActive = false;
+    document.getElementById('tutorial-overlay')?.remove();
+    if (this._tutorialResizeHandler) {
+      window.removeEventListener('resize', this._tutorialResizeHandler);
+      this._tutorialResizeHandler = null;
+    }
+  },
+
+  tutorialNext() {
+    if (this._tutorialStep >= this._tutorialSteps.length - 1) {
+      this.endTutorial();
+      return;
+    }
+    this._tutorialStep++;
+    this._renderTutorialStep();
+  },
+
+  tutorialBack() {
+    if (this._tutorialStep <= 0) return;
+    this._tutorialStep--;
+    this._renderTutorialStep();
+  },
+
+  _renderTutorialStep() {
+    const step = this._tutorialSteps[this._tutorialStep];
+    const overlay = document.getElementById('tutorial-overlay');
+    if (!overlay) return;
+
+    // Switch view if needed
+    if (step.view && step.view !== this.currentView) {
+      this.currentView = step.view;
+      // Update active nav highlight
+      document.querySelectorAll('#nav-links li').forEach(li => {
+        li.classList.toggle('active', li.dataset.view === step.view);
+      });
+      this.render();
+    }
+
+    const total = this._tutorialSteps.length;
+    const current = this._tutorialStep + 1;
+    const isFirst = this._tutorialStep === 0;
+    const isLast = this._tutorialStep === total - 1;
+
+    // Progress dots
+    const dots = this._tutorialSteps.map((_, i) =>
+      `<span class="tutorial-progress-dot ${i < this._tutorialStep ? 'done' : ''} ${i === this._tutorialStep ? 'active' : ''}"></span>`
+    ).join('');
+
+    const controls = `
+      <div class="tutorial-progress">${dots}</div>
+      <div class="tutorial-controls">
+        <button class="btn btn-ghost btn-sm" onclick="App.endTutorial()" style="font-size:11px; opacity:0.7;">Skip</button>
+        <span class="tutorial-step-indicator">${current} / ${total}</span>
+        <div style="display:flex; gap:6px;">
+          ${!isFirst ? '<button class="btn btn-ghost btn-sm" onclick="App.tutorialBack()">&#8592; Back</button>' : '<span></span>'}
+          <button class="btn btn-primary btn-sm" onclick="App.tutorialNext()">${isLast ? 'Finish' : 'Next &#8594;'}</button>
+        </div>
+      </div>`;
+
+    if (!step.target) {
+      // Centered card (no spotlight)
+      overlay.innerHTML = `
+        <div class="tutorial-dimmer" onclick="App.endTutorial()"></div>
+        <div class="tutorial-center-card" onclick="event.stopPropagation()">
+          <h3>${step.title}</h3>
+          <p>${step.body}</p>
+          ${controls}
+        </div>`;
+      return;
+    }
+
+    // Target-based spotlight step
+    overlay.innerHTML = `
+      <div class="tutorial-spotlight"></div>
+      <div class="tutorial-tooltip" data-position="${step.position}" onclick="event.stopPropagation()">
+        <h3>${step.title}</h3>
+        <p>${step.body}</p>
+        ${controls}
+      </div>`;
+
+    // Position after DOM update
+    requestAnimationFrame(() => this._positionTutorialTooltip());
+  },
+
+  _positionTutorialTooltip() {
+    const step = this._tutorialSteps[this._tutorialStep];
+    if (!step || !step.target) return;
+
+    const target = document.querySelector(step.target);
+    const spotlight = document.querySelector('.tutorial-spotlight');
+    const tooltip = document.querySelector('.tutorial-tooltip');
+    if (!target || !spotlight || !tooltip) {
+      // Target not found — fall back to centered card
+      const overlay = document.getElementById('tutorial-overlay');
+      if (overlay) {
+        const total = this._tutorialSteps.length;
+        const current = this._tutorialStep + 1;
+        const dots = this._tutorialSteps.map((_, i) =>
+          `<span class="tutorial-progress-dot ${i < this._tutorialStep ? 'done' : ''} ${i === this._tutorialStep ? 'active' : ''}"></span>`
+        ).join('');
+        overlay.innerHTML = `
+          <div class="tutorial-dimmer" onclick="App.endTutorial()"></div>
+          <div class="tutorial-center-card" onclick="event.stopPropagation()">
+            <h3>${step.title}</h3>
+            <p>${step.body}</p>
+            <div class="tutorial-progress">${dots}</div>
+            <div class="tutorial-controls">
+              <button class="btn btn-ghost btn-sm" onclick="App.endTutorial()" style="font-size:11px; opacity:0.7;">Skip</button>
+              <span class="tutorial-step-indicator">${current} / ${this._tutorialSteps.length}</span>
+              <div style="display:flex; gap:6px;">
+                ${this._tutorialStep > 0 ? '<button class="btn btn-ghost btn-sm" onclick="App.tutorialBack()">&#8592; Back</button>' : '<span></span>'}
+                <button class="btn btn-primary btn-sm" onclick="App.tutorialNext()">${this._tutorialStep >= total - 1 ? 'Finish' : 'Next &#8594;'}</button>
+              </div>
+            </div>
+          </div>`;
+      }
+      return;
+    }
+
+    // Account for CSS zoom
+    const zoom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-zoom') || '1') || 1;
+    const rect = target.getBoundingClientRect();
+    const pad = 6;
+
+    // Position spotlight
+    spotlight.style.top = (rect.top / zoom - pad) + 'px';
+    spotlight.style.left = (rect.left / zoom - pad) + 'px';
+    spotlight.style.width = (rect.width / zoom + pad * 2) + 'px';
+    spotlight.style.height = (rect.height / zoom + pad * 2) + 'px';
+
+    // Position tooltip
+    const tRect = tooltip.getBoundingClientRect();
+    const tW = tRect.width / zoom;
+    const tH = tRect.height / zoom;
+    const vW = window.innerWidth / zoom;
+    const vH = window.innerHeight / zoom;
+    let top, left;
+
+    const pos = step.position;
+    if (pos === 'right') {
+      left = rect.right / zoom + 16;
+      top = rect.top / zoom + (rect.height / zoom) / 2 - tH / 2;
+    } else if (pos === 'left') {
+      left = rect.left / zoom - 16 - tW;
+      top = rect.top / zoom + (rect.height / zoom) / 2 - tH / 2;
+    } else if (pos === 'top') {
+      top = rect.top / zoom - 16 - tH;
+      left = rect.left / zoom + (rect.width / zoom) / 2 - tW / 2;
+    } else {
+      top = rect.bottom / zoom + 16;
+      left = rect.left / zoom + (rect.width / zoom) / 2 - tW / 2;
+    }
+
+    // Clamp to viewport
+    top = Math.max(8, Math.min(top, vH - tH - 8));
+    left = Math.max(8, Math.min(left, vW - tW - 8));
+
+    tooltip.style.top = top + 'px';
+    tooltip.style.left = left + 'px';
+  },
+
+  _offerTutorial() {
+    const el = document.createElement('div');
+    el.id = 'tutorial-offer';
+    el.style.cssText = 'position:fixed;inset:0;z-index:10000;';
+    el.innerHTML = `
+      <div class="tutorial-dimmer"></div>
+      <div class="tutorial-center-card" onclick="event.stopPropagation()">
+        <div style="font-size:40px; margin-bottom:12px;">&#9670;</div>
+        <h3>Welcome to Nexus!</h3>
+        <p>Would you like a quick interactive tour of the features?</p>
+        <div style="display:flex; gap:8px; justify-content:center;">
+          <button class="btn btn-primary" onclick="document.getElementById('tutorial-offer').remove(); App.startTutorial();">Yes, show me around</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('tutorial-offer').remove();">Skip</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+  },
 };
 
 // ── Keyboard Shortcuts ────────────────────────────
 // All shortcuts require Ctrl+Shift+ to prevent accidental activation.
 document.addEventListener('keydown', (e) => {
+  // Tutorial keyboard navigation
+  if (App._tutorialActive) {
+    if (e.key === 'Escape') { App.endTutorial(); e.preventDefault(); }
+    if (e.key === 'ArrowRight' || e.key === 'Enter') { App.tutorialNext(); e.preventDefault(); }
+    if (e.key === 'ArrowLeft') { App.tutorialBack(); e.preventDefault(); }
+    return;
+  }
+  // ESC key — close modals, cancel edits, go back
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    if (App.showShortcutHelp) { App.showShortcutHelp = false; App.render(); return; }
+    if (App.fabExpanded) { App.fabExpanded = false; App.render(); return; }
+    if (App.focusMode) { App.toggleFocusMode(); return; }
+    if (App._editingCapture) { App._editingCapture = null; App.render(); return; }
+    if (App._editingJournal) { App._editingJournal = null; App.render(); return; }
+    if (App._importWizard) { App._importWizard = false; App.render(); return; }
+    // Go back in history if possible
+    if (history.state && history.state.view !== 'dashboard') { history.back(); }
+    return;
+  }
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
   if (e.metaKey || e.altKey) return;
 
@@ -6315,7 +6796,7 @@ document.addEventListener('keydown', (e) => {
   } else if (key === 'g') {
     document.querySelector('[data-view="strategy"]')?.click();
   } else if (key === 's') {
-    App.currentView = 'search'; App.render();
+    App.navigateTo('search');
     setTimeout(() => document.getElementById('search-input')?.focus(), 50);
   } else if (key === 'f') {
     App.toggleFocusMode();

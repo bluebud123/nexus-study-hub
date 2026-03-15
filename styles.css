@@ -154,6 +154,7 @@ body {
   transition: all var(--transition);
   cursor: default;
 }
+.stat-card-link { cursor: pointer; }
 .stat-card:hover {
   border-color: var(--accent);
   transform: translateY(-3px);
@@ -354,7 +355,12 @@ textarea { resize: vertical; min-height: 100px; }
   opacity: 0;
 }
 .capture-card:hover .item-delete { opacity: 1; }
-.capture-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+.capture-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; cursor: text; }
+.capture-edit-area, .journal-edit-area {
+  width: 100%; padding: 8px; font-size: 13px; font-family: inherit;
+  background: var(--bg-input); color: var(--text); border: 1px solid var(--accent);
+  border-radius: 6px; resize: vertical;
+}
 .capture-time { font-size: 11px; color: var(--text-dim); margin-top: 8px; }
 
 /* ── Empty State ─────────────────────────────── */
@@ -1789,7 +1795,18 @@ body.light .theme-toggle-knob {
 .gantt-cell.gantt-span { background: rgba(124, 111, 247, 0.06); border-bottom-color: rgba(124,111,247,0.15); }
 .gantt-cell.gantt-active { background: rgba(124, 111, 247, 0.12); border-bottom-color: var(--accent); }
 .gantt-cell.gantt-done { background: rgba(52, 211, 153, 0.1); border-bottom-color: var(--green); }
-.gantt-cell.gantt-selected { box-shadow: inset 0 0 0 1px var(--accent); border-radius: 3px; }
+.gantt-cell.gantt-selected {
+  background: rgba(124, 111, 247, 0.18);
+  border-bottom: 2px solid var(--accent);
+  box-shadow: 0 -2px 8px rgba(124, 111, 247, 0.25) inset;
+}
+.gantt-expand-arrow {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-right: 4px;
+  transition: transform 0.2s;
+}
+.gantt-proj-label:hover .gantt-expand-arrow { color: var(--accent); }
 .gantt-cell.gantt-deadline-cell { border-right: 2px solid var(--red); }
 /* Bar graph visualization inside each cell */
 .gantt-bar {
@@ -1918,6 +1935,151 @@ body.light .theme-toggle-knob {
   .cal-streak-banner { padding: 12px; }
   .gantt-label { width: 80px; font-size: 11px; }
   .gantt-month, .gantt-cell { width: 44px; }
+}
+
+/* ── Interactive Tutorial Walkthrough ──────────────── */
+#tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  pointer-events: none;
+}
+#tutorial-overlay * {
+  pointer-events: auto;
+}
+.tutorial-spotlight {
+  position: fixed;
+  border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  transition: top 0.3s ease, left 0.3s ease, width 0.3s ease, height 0.3s ease;
+}
+body.light .tutorial-spotlight {
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+}
+.tutorial-tooltip {
+  position: fixed;
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 320px;
+  width: 90vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  animation: tutorialFadeIn 0.25s ease;
+  z-index: 10001;
+}
+.tutorial-tooltip h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  color: var(--accent);
+}
+.tutorial-tooltip p {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+.tutorial-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.tutorial-step-indicator {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.tutorial-tooltip::before {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  transform: rotate(45deg);
+}
+.tutorial-tooltip[data-position="right"]::before {
+  left: -7px; top: 50%; margin-top: -6px;
+  border-right: none; border-top: none;
+}
+.tutorial-tooltip[data-position="left"]::before {
+  right: -7px; top: 50%; margin-top: -6px;
+  border-left: none; border-bottom: none;
+}
+.tutorial-tooltip[data-position="top"]::before {
+  bottom: -7px; left: 50%; margin-left: -6px;
+  border-left: none; border-top: none;
+}
+.tutorial-tooltip[data-position="bottom"]::before {
+  top: -7px; left: 50%; margin-left: -6px;
+  border-right: none; border-bottom: none;
+}
+.tutorial-dimmer {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  pointer-events: auto;
+}
+body.light .tutorial-dimmer {
+  background: rgba(0, 0, 0, 0.4);
+}
+.tutorial-center-card {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  padding: 32px;
+  max-width: 400px;
+  width: 90vw;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  animation: tutorialCenterIn 0.25s ease;
+  z-index: 10001;
+}
+.tutorial-center-card h3 {
+  font-size: 18px;
+  margin: 0 0 10px;
+  color: var(--accent);
+}
+.tutorial-center-card p {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+  margin: 0 0 20px;
+}
+.tutorial-progress {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+.tutorial-progress-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 0.2s;
+}
+.tutorial-progress-dot.active {
+  background: var(--accent);
+}
+.tutorial-progress-dot.done {
+  background: var(--accent);
+  opacity: 0.5;
+}
+@keyframes tutorialFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes tutorialCenterIn {
+  from { opacity: 0; transform: translate(-50%, -48%); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
 }
 
 @media (max-width: 420px) {
