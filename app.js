@@ -37,6 +37,8 @@ const Store = {
       weeklyReviewTags: ['lesson', 'people', 'food'],
       scheduleLog: {},
       dashboardLayout: ['strategy-banner', 'stats-grid', 'open-tasks', 'recent-captures', 'suggestions', 'vault-insights', 'tag-cloud'],
+      customKnowledgeAreas: [],   // user-added area names
+      hiddenKnowledgeAreas: [],   // vault-detected areas the user hid
     };
   },
 
@@ -2179,21 +2181,6 @@ const Views = {
       <div class="heatmap-cell heatmap-l3" style="width:12px;height:12px;display:inline-block;"></div> More
     </div>`;
 
-    // Knowledge areas
-    const areasHTML = (g.knowledgeAreas || []).map(a => {
-      const maxFiles = Math.max(...(g.knowledgeAreas || []).map(x => x.fileCount), 1);
-      const pct = Math.round((a.fileCount / maxFiles) * 100);
-      return `
-        <div style="margin-bottom:12px;">
-          <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;">
-            <span>${escapeHTML(a.area)}</span>
-            <span style="color:var(--text-dim);">${a.fileCount} files</span>
-          </div>
-          <div class="progress-bar" style="margin-top:0;">
-            <div class="progress-fill" style="width:${pct}%; background:var(--accent);"></div>
-          </div>
-        </div>`;
-    }).join('');
 
     // Writing volume sparkline
     const volumes = g.writingVolume || [];
@@ -2203,10 +2190,25 @@ const Views = {
       return `<div class="spark-bar" style="height:${h}px;" title="${v.month}: ${v.words} words"></div>`;
     }).join('');
 
-    // Lessons timeline
-    const lessonsHTML = (g.lessons || []).slice(-8).reverse().map(l => `
+    // Lessons timeline — merge vault + app captures + journal
+    const _appLessons = [];
+    for (const cap of (data.captures || [])) {
+      if (/#lesson/i.test(cap.text || '')) {
+        _appLessons.push({ date: cap.created ? new Date(cap.created).toISOString().slice(0,10) : '—', text: (cap.text||'').replace(/#\w+/g,'').trim(), src: '📱' });
+      }
+    }
+    for (const j of (data.journal || [])) {
+      if (/#lesson/i.test(j.text || '')) {
+        _appLessons.push({ date: j.date || '—', text: (j.text||'').replace(/#\w+/g,'').trim(), src: '📓' });
+      }
+    }
+    const _allLessons = [
+      ...(g.lessons || []).map(l => ({ ...l, src: '🗃️' })),
+      ..._appLessons
+    ].sort((a, b) => (a.date||'').localeCompare(b.date||'')).slice(-12).reverse();
+    const lessonsHTML = _allLessons.map(l => `
       <div class="lesson-item">
-        <div class="lesson-date">${l.date}</div>
+        <div class="lesson-date">${l.date} <span style="font-size:10px; opacity:0.6;">${l.src}</span></div>
         <div class="lesson-text">${escapeHTML(l.text)}</div>
       </div>
     `).join('');
@@ -2481,7 +2483,7 @@ const Views = {
 
       <!-- Knowledge Areas -->
       <div class="card">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
           <div class="strat-section-label" style="margin-bottom:0;">Knowledge Areas</div>
           <select class="growth-sort-select" onchange="App.setGrowthSort(this.value)">
             <option value="files" ${App.growthSort === 'files' ? 'selected' : ''}>By File Count</option>
@@ -2489,23 +2491,48 @@ const Views = {
             <option value="name" ${App.growthSort === 'name' ? 'selected' : ''}>By Name</option>
           </select>
         </div>
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:12px; line-height:1.5;">
+          Auto-detected from your vault folder structure. Add your own areas or hide ones you don't need.
+          ${(data.hiddenKnowledgeAreas||[]).length ? `<span style="margin-left:6px; cursor:pointer; color:var(--accent); text-decoration:underline;" onclick="App.resetHiddenAreas()">Restore hidden (${data.hiddenKnowledgeAreas.length})</span>` : ''}
+        </div>
         ${(() => {
-          let areas = [...(g.knowledgeAreas || [])];
+          const hidden = new Set(data.hiddenKnowledgeAreas || []);
+          const custom = (data.customKnowledgeAreas || []).map(name => ({ area: name, fileCount: null, lastUpdated: null, custom: true }));
+          let areas = [
+            ...(g.knowledgeAreas || []).filter(a => !hidden.has(a.area)),
+            ...custom.filter(a => !hidden.has(a.area))
+          ];
           if (App.growthSort === 'recent') areas.sort((a, b) => (b.lastUpdated || '').localeCompare(a.lastUpdated || ''));
           else if (App.growthSort === 'name') areas.sort((a, b) => a.area.localeCompare(b.area));
-          // else default: by fileCount (already sorted)
-          const maxFiles = Math.max(...areas.map(x => x.fileCount), 1);
+          const maxFiles = Math.max(...areas.map(x => x.fileCount || 0), 1);
           return areas.map(a => {
-            const pct = Math.round((a.fileCount / maxFiles) * 100);
-            return '<div style="margin-bottom:12px;"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>' + escapeHTML(a.area) + '</span><span style="color:var(--text-dim);">' + a.fileCount + ' files' + (a.lastUpdated ? ' &middot; ' + a.lastUpdated : '') + '</span></div><div class="progress-bar" style="margin-top:0;"><div class="progress-fill" style="width:' + pct + '%;background:var(--accent);"></div></div></div>';
-          }).join('');
-        })() || '<span style="color:var(--text-dim); font-size:12px;">No data yet</span>'}
+            const pct = a.fileCount ? Math.round((a.fileCount / maxFiles) * 100) : 0;
+            const meta = a.custom ? '<span style="font-size:10px;color:var(--accent);margin-left:4px;">custom</span>' : (a.fileCount !== null ? a.fileCount + ' files' + (a.lastUpdated ? ' &middot; ' + a.lastUpdated : '') : '');
+            return `<div style="margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+              <div style="flex:1;">
+                <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+                  <span>${escapeHTML(a.area)}${a.custom ? '<span style="font-size:10px;color:var(--accent);margin-left:4px;">✎</span>' : ''}</span>
+                  <span style="color:var(--text-dim); font-size:11px;">${meta}</span>
+                </div>
+                ${!a.custom ? `<div class="progress-bar" style="margin-top:0;"><div class="progress-fill" style="width:${pct}%;background:var(--accent);"></div></div>` : ''}
+              </div>
+              <button onclick="App.hideKnowledgeArea('${escapeHTML(a.area)}')" title="Hide this area" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:13px;padding:0 2px;opacity:0.5;flex-shrink:0;" onmouseover="this.style.opacity=1;this.style.color='var(--red)'" onmouseout="this.style.opacity=0.5;this.style.color='var(--text-dim)'">✕</button>
+            </div>`;
+          }).join('') || '<div style="font-size:12px;color:var(--text-dim);">No areas yet — connect a vault or add a custom area below.</div>';
+        })()}
+        <!-- Add custom area -->
+        <div style="display:flex; gap:6px; margin-top:10px; border-top:1px solid var(--border); padding-top:10px;">
+          <input type="text" id="new-area-input" placeholder="Add a knowledge area..." class="strat-settings-input" style="flex:1; font-size:12px;"
+            onkeydown="if(event.key==='Enter') App.addKnowledgeArea(this.value)">
+          <button class="btn btn-ghost btn-sm" onclick="App.addKnowledgeArea(document.getElementById('new-area-input')?.value)">+ Add</button>
+        </div>
       </div>
 
       <!-- Lessons -->
       <div class="card">
         <div class="strat-section-label">Recent Lessons</div>
-        ${lessonsHTML || '<div class="empty-state" style="padding:16px;"><div class="empty-text">No #lesson entries found in vault</div></div>'}
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:10px;">Tag any capture, journal entry, or vault note with <code style="background:var(--bg-input);padding:1px 4px;border-radius:3px;">#lesson</code> to see it here.</div>
+        ${lessonsHTML || '<div style="font-size:12px; color:var(--text-dim); padding:8px 0;">No #lesson entries found yet.</div>'}
       </div>
     `;
   },
@@ -5155,6 +5182,33 @@ const App = {
 
   setGrowthSort(sort) {
     this.growthSort = sort;
+    this.render();
+  },
+
+  hideKnowledgeArea(name) {
+    Store.update(d => {
+      if (!d.hiddenKnowledgeAreas) d.hiddenKnowledgeAreas = [];
+      if (!d.hiddenKnowledgeAreas.includes(name)) d.hiddenKnowledgeAreas.push(name);
+      // Also remove from custom if it was custom
+      d.customKnowledgeAreas = (d.customKnowledgeAreas || []).filter(n => n !== name);
+    });
+    this.render();
+  },
+
+  addKnowledgeArea(name) {
+    if (!name?.trim()) return;
+    Store.update(d => {
+      if (!d.customKnowledgeAreas) d.customKnowledgeAreas = [];
+      if (!d.customKnowledgeAreas.includes(name.trim())) d.customKnowledgeAreas.push(name.trim());
+      // Un-hide if it was hidden before
+      d.hiddenKnowledgeAreas = (d.hiddenKnowledgeAreas || []).filter(n => n !== name.trim());
+    });
+    this.render();
+    setTimeout(() => { const el = document.getElementById('new-area-input'); if (el) el.value = ''; }, 0);
+  },
+
+  resetHiddenAreas() {
+    Store.update(d => { d.hiddenKnowledgeAreas = []; });
     this.render();
   },
 
