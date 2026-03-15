@@ -693,12 +693,20 @@ const Views = {
       },
 
       'tag-cloud': () => {
-        if (!App.vaultAvailable || !App.vaultStats || !Object.keys(App.vaultStats.tagCounts || {}).length) return '';
+        // Merge vault tags + app capture tags for real-time updates
+        const combined = { ...(App.vaultStats?.tagCounts || {}) };
+        for (const c of (data.captures || [])) {
+          for (const t of (c.text.match(/#(\w+)/g) || [])) {
+            const tag = t.slice(1).toLowerCase();
+            combined[tag] = (combined[tag] || 0) + 1;
+          }
+        }
+        if (!Object.keys(combined).length) return '';
         return `
           <div class="card">
             <div class="strat-section-label">Top Tags</div>
             <div class="vault-tag-cloud">
-              ${Object.entries(App.vaultStats.tagCounts)
+              ${Object.entries(combined)
                 .sort((a, b) => b[1] - a[1])
                 .slice(0, 15)
                 .map(([tag, count]) => {
@@ -4326,6 +4334,7 @@ const App = {
     if (!text) return;
     updateStreak();
     Store.update(d => d.journal.push({ id: uid(), text, date: todayKey(), created: Date.now() }));
+    this._patchGrowthTags(text);
     // Bridge to vault if toggle is on
     const toggle = document.getElementById('journal-vault-toggle');
     if (toggle && toggle.checked) {
@@ -6234,11 +6243,24 @@ const App = {
   },
 
   // ─── Capture with Vault Bridge ──────────────
+  // Instantly patch in-memory growthData.tagTrends with tags from new text
+  _patchGrowthTags(text) {
+    const tags = (text.match(/#(\w+)/g) || []).map(t => t.slice(1).toLowerCase());
+    if (!tags.length || !this.growthData) return;
+    const month = new Date().toISOString().slice(0, 7);
+    if (!this.growthData.tagTrends) this.growthData.tagTrends = {};
+    for (const tag of tags) {
+      if (!this.growthData.tagTrends[tag]) this.growthData.tagTrends[tag] = {};
+      this.growthData.tagTrends[tag][month] = (this.growthData.tagTrends[tag][month] || 0) + 1;
+    }
+  },
+
   addCapture() {
     const input = document.getElementById('capture-input');
     const text = input.value.trim();
     if (!text) return;
     Store.update(d => d.captures.push({ id: uid(), text, created: Date.now() }));
+    this._patchGrowthTags(text);
     // Bridge to vault — save to Quick Captures file
     const toggle = document.getElementById('capture-vault-toggle');
     if (toggle && toggle.checked) {
