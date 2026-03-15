@@ -2483,7 +2483,7 @@ const Views = {
 
       <!-- Knowledge Areas -->
       <div class="card">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
           <div class="strat-section-label" style="margin-bottom:0;">Knowledge Areas</div>
           <select class="growth-sort-select" onchange="App.setGrowthSort(this.value)">
             <option value="files" ${App.growthSort === 'files' ? 'selected' : ''}>By File Count</option>
@@ -2491,40 +2491,56 @@ const Views = {
             <option value="name" ${App.growthSort === 'name' ? 'selected' : ''}>By Name</option>
           </select>
         </div>
-        <div style="font-size:11px; color:var(--text-dim); margin-bottom:12px; line-height:1.5;">
-          Auto-detected from your vault folder structure. Add your own areas or hide ones you don't need.
-          ${(data.hiddenKnowledgeAreas||[]).length ? `<span style="margin-left:6px; cursor:pointer; color:var(--accent); text-decoration:underline;" onclick="App.resetHiddenAreas()">Restore hidden (${data.hiddenKnowledgeAreas.length})</span>` : ''}
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:14px; padding:8px 10px; background:var(--bg-input); border-radius:6px; line-height:1.6;">
+          💡 <strong>How it works:</strong> Each area has keywords — any vault file whose name contains a keyword gets counted under that area (like a multi-term search).
+          Files matching no area appear under <em>General</em>.<br>
+          <span style="opacity:0.8;">Example: area "Orthopaedics" with keywords <code style="background:rgba(255,255,255,0.08);padding:1px 4px;border-radius:3px;">spine, hip, knee, fracture</code> — any file with those words in the name counts.</span>
         </div>
         ${(() => {
-          const hidden = new Set(data.hiddenKnowledgeAreas || []);
-          const custom = (data.customKnowledgeAreas || []).map(name => ({ area: name, fileCount: null, lastUpdated: null, custom: true }));
-          let areas = [
-            ...(g.knowledgeAreas || []).filter(a => !hidden.has(a.area)),
-            ...custom.filter(a => !hidden.has(a.area))
-          ];
+          const defs = data.customKnowledgeAreas || []; // [{name, keywords:[]}]
+          const serverMap = {};
+          for (const a of (g.knowledgeAreas || [])) serverMap[a.area] = a;
+          let areas = defs.map(def => ({
+            name: def.name,
+            keywords: def.keywords || [],
+            fileCount: serverMap[def.name]?.fileCount ?? 0,
+            lastUpdated: serverMap[def.name]?.lastUpdated ?? null,
+          }));
+          // Append General if it has files
+          const general = serverMap['General'];
+          if (general?.fileCount) areas.push({ name: 'General', keywords: [], fileCount: general.fileCount, lastUpdated: general.lastUpdated, isGeneral: true });
           if (App.growthSort === 'recent') areas.sort((a, b) => (b.lastUpdated || '').localeCompare(a.lastUpdated || ''));
-          else if (App.growthSort === 'name') areas.sort((a, b) => a.area.localeCompare(b.area));
+          else if (App.growthSort === 'name') areas.sort((a, b) => a.name.localeCompare(b.name));
+          else areas.sort((a, b) => (b.fileCount || 0) - (a.fileCount || 0));
           const maxFiles = Math.max(...areas.map(x => x.fileCount || 0), 1);
+          if (!areas.length) return '<div style="font-size:12px;color:var(--text-dim);padding:8px 0;">No areas defined yet — add one below to start tracking.</div>';
           return areas.map(a => {
-            const pct = a.fileCount ? Math.round((a.fileCount / maxFiles) * 100) : 0;
-            const meta = a.custom ? '<span style="font-size:10px;color:var(--accent);margin-left:4px;">custom</span>' : (a.fileCount !== null ? a.fileCount + ' files' + (a.lastUpdated ? ' &middot; ' + a.lastUpdated : '') : '');
-            return `<div style="margin-bottom:10px; display:flex; align-items:center; gap:8px;">
-              <div style="flex:1;">
-                <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
-                  <span>${escapeHTML(a.area)}${a.custom ? '<span style="font-size:10px;color:var(--accent);margin-left:4px;">✎</span>' : ''}</span>
-                  <span style="color:var(--text-dim); font-size:11px;">${meta}</span>
+            const pct = Math.round((a.fileCount / maxFiles) * 100);
+            const chips = a.keywords.map(k => `<span style="font-size:10px;color:var(--accent);background:var(--accent)15;border-radius:3px;padding:1px 5px;margin-right:3px;">${escapeHTML(k)}</span>`).join('');
+            return `<div style="margin-bottom:12px;">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
+                <div>
+                  <span style="font-size:13px; font-weight:600;">${escapeHTML(a.name)}${a.isGeneral ? ' <span style="font-size:10px;color:var(--text-dim);font-weight:400;">(unmatched)</span>' : ''}</span>
+                  ${chips ? `<div style="margin-top:3px;">${chips}</div>` : ''}
                 </div>
-                ${!a.custom ? `<div class="progress-bar" style="margin-top:0;"><div class="progress-fill" style="width:${pct}%;background:var(--accent);"></div></div>` : ''}
+                <div style="display:flex; align-items:center; gap:8px; flex-shrink:0; margin-left:8px;">
+                  <span style="font-size:11px;color:var(--text-dim);">${a.fileCount} files${a.lastUpdated ? ' · ' + a.lastUpdated : ''}</span>
+                  ${!a.isGeneral ? `<button onclick="App.deleteKnowledgeArea('${escapeHTML(a.name)}')" title="Remove area" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:13px;padding:0 2px;opacity:0.5;" onmouseover="this.style.opacity=1;this.style.color='var(--red)'" onmouseout="this.style.opacity=0.5;this.style.color='var(--text-dim)'">✕</button>` : ''}
+                </div>
               </div>
-              <button onclick="App.hideKnowledgeArea('${escapeHTML(a.area)}')" title="Hide this area" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:13px;padding:0 2px;opacity:0.5;flex-shrink:0;" onmouseover="this.style.opacity=1;this.style.color='var(--red)'" onmouseout="this.style.opacity=0.5;this.style.color='var(--text-dim)'">✕</button>
+              <div class="progress-bar" style="margin-top:0;"><div class="progress-fill" style="width:${pct}%;background:${a.isGeneral ? 'var(--text-dim)' : 'var(--accent)'};"></div></div>
             </div>`;
-          }).join('') || '<div style="font-size:12px;color:var(--text-dim);">No areas yet — connect a vault or add a custom area below.</div>';
+          }).join('');
         })()}
-        <!-- Add custom area -->
-        <div style="display:flex; gap:6px; margin-top:10px; border-top:1px solid var(--border); padding-top:10px;">
-          <input type="text" id="new-area-input" placeholder="Add a knowledge area..." class="strat-settings-input" style="flex:1; font-size:12px;"
-            onkeydown="if(event.key==='Enter') App.addKnowledgeArea(this.value)">
-          <button class="btn btn-ghost btn-sm" onclick="App.addKnowledgeArea(document.getElementById('new-area-input')?.value)">+ Add</button>
+        <!-- Add new area -->
+        <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:8px;">
+          <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">Add a new knowledge area with keywords to match vault filenames:</div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <input type="text" id="new-area-name" placeholder="Area name (e.g. Orthopaedics)" class="strat-settings-input" style="flex:1; min-width:140px; font-size:12px;">
+            <input type="text" id="new-area-keywords" placeholder="Keywords: spine, hip, knee, fracture" class="strat-settings-input" style="flex:2; min-width:180px; font-size:12px;"
+              onkeydown="if(event.key==='Enter') App.addKnowledgeArea(document.getElementById('new-area-name')?.value, this.value)">
+            <button class="btn btn-ghost btn-sm" onclick="App.addKnowledgeArea(document.getElementById('new-area-name')?.value, document.getElementById('new-area-keywords')?.value)">+ Add</button>
+          </div>
         </div>
       </div>
 
@@ -5185,30 +5201,28 @@ const App = {
     this.render();
   },
 
-  hideKnowledgeArea(name) {
-    Store.update(d => {
-      if (!d.hiddenKnowledgeAreas) d.hiddenKnowledgeAreas = [];
-      if (!d.hiddenKnowledgeAreas.includes(name)) d.hiddenKnowledgeAreas.push(name);
-      // Also remove from custom if it was custom
-      d.customKnowledgeAreas = (d.customKnowledgeAreas || []).filter(n => n !== name);
-    });
-    this.render();
-  },
-
-  addKnowledgeArea(name) {
+  addKnowledgeArea(name, keywordsStr) {
     if (!name?.trim()) return;
+    const kws = (keywordsStr || '').split(',').map(k => k.trim().toLowerCase()).filter(Boolean);
     Store.update(d => {
       if (!d.customKnowledgeAreas) d.customKnowledgeAreas = [];
-      if (!d.customKnowledgeAreas.includes(name.trim())) d.customKnowledgeAreas.push(name.trim());
-      // Un-hide if it was hidden before
-      d.hiddenKnowledgeAreas = (d.hiddenKnowledgeAreas || []).filter(n => n !== name.trim());
+      const existing = d.customKnowledgeAreas.find(a => a.name === name.trim());
+      if (existing) { existing.keywords = kws; }
+      else d.customKnowledgeAreas.push({ name: name.trim(), keywords: kws });
     });
     this.render();
-    setTimeout(() => { const el = document.getElementById('new-area-input'); if (el) el.value = ''; }, 0);
+    setTimeout(() => {
+      const n = document.getElementById('new-area-name'); if (n) n.value = '';
+      const k = document.getElementById('new-area-keywords'); if (k) k.value = '';
+    }, 0);
+    // Refresh growth data so file counts update
+    if (this.vaultAvailable) this.loadGrowthData?.();
   },
 
-  resetHiddenAreas() {
-    Store.update(d => { d.hiddenKnowledgeAreas = []; });
+  deleteKnowledgeArea(name) {
+    Store.update(d => {
+      d.customKnowledgeAreas = (d.customKnowledgeAreas || []).filter(a => a.name !== name);
+    });
     this.render();
   },
 

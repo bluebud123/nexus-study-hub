@@ -537,21 +537,26 @@ async function computeGrowth() {
     writingVolume[month].lines += entry.lines.length;
   }
 
-  // Knowledge areas from file names
+  // Knowledge areas — user-defined keyword mappings (loaded from nexus-data.json)
   const knowledgeAreas = {};
+  let userAreaMappings = [];
+  try {
+    const storeRaw2 = await fs.promises.readFile(path.join(__dirname, 'nexus-data.json'), 'utf8');
+    const store2 = JSON.parse(storeRaw2);
+    userAreaMappings = (store2.customKnowledgeAreas || []).filter(a => a && a.name && Array.isArray(a.keywords) && a.keywords.length > 0);
+  } catch {}
+
   const allFiles = await fs.promises.readdir(vp, { withFileTypes: true });
   for (const f of allFiles) {
     if (!f.name.endsWith('.md')) continue;
-    let area = 'General';
     const n = f.name.toLowerCase();
-    if (/long case|short case|scoliosis|spine|hip|knee|shoulder|ankle|dfu|fracture/.test(n)) area = 'Clinical Cases';
-    else if (/project|scoliox|model|label.?studio|sam/.test(n)) area = 'AI/Tech Projects';
-    else if (/exam|viva|mcq|quiz/.test(n)) area = 'Exam Prep';
-    else if (/travel|vietnam|bangkok|japan|hong.?kong/.test(n)) area = 'Travel';
-    else if (/cash|stock|bill|fund/.test(n)) area = 'Finance';
-    else if (/exercise|gym|food/.test(n)) area = 'Health';
-    else if (/rapid|monthly|mental|index|journal|goal|gratitude/.test(n)) area = 'Personal System';
-
+    let area = 'General';
+    for (const mapping of userAreaMappings) {
+      if (mapping.keywords.some(kw => kw && n.includes(kw.toLowerCase().trim()))) {
+        area = mapping.name;
+        break;
+      }
+    }
     const stat = await fs.promises.stat(path.join(vp, f.name));
     if (!knowledgeAreas[area]) knowledgeAreas[area] = { fileCount: 0, lastUpdated: null };
     knowledgeAreas[area].fileCount++;
