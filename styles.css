@@ -36,9 +36,9 @@ body {
   height: 100vh;
   background: var(--bg-card);
   border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  padding: 24px 0 92px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  padding-top: 24px;
   position: fixed;
   left: 0;
   top: 0;
@@ -66,10 +66,9 @@ body {
 
 #nav-links {
   list-style: none;
-  flex: 1;
-  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  min-height: 0;
 }
 #nav-links li {
   padding: 12px 24px;
@@ -97,10 +96,7 @@ body {
   padding: 12px 16px;
   border-top: 1px solid var(--border);
   background: var(--bg-card);
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  flex-shrink: 0;
 }
 .sidebar-footer button {
   width: 100%;
@@ -1540,8 +1536,8 @@ body.light .btn-ghost:hover {
   gap: 8px;
   width: 100%;
   padding: 9px 12px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.12) !important;
+  background: rgba(124,111,247,0.12);
+  border: 1px solid rgba(124,111,247,0.5) !important;
   border-radius: 10px;
   color: var(--text);
   cursor: pointer;
@@ -1552,15 +1548,15 @@ body.light .btn-ghost:hover {
 }
 #theme-toggle:hover {
   border-color: var(--accent) !important;
-  background: rgba(255,255,255,0.07);
+  background: rgba(124,111,247,0.22);
 }
 body.light #theme-toggle {
-  background: rgba(0,0,0,0.05);
-  border-color: rgba(0,0,0,0.15) !important;
+  background: rgba(124,111,247,0.08);
+  border-color: rgba(124,111,247,0.4) !important;
   color: var(--text);
 }
 body.light #theme-toggle:hover {
-  background: rgba(0,0,0,0.09);
+  background: rgba(124,111,247,0.15);
   border-color: var(--accent) !important;
 }
 .theme-toggle-icon {
@@ -1576,7 +1572,7 @@ body.light #theme-toggle:hover {
 .theme-toggle-switch {
   width: 30px;
   height: 16px;
-  background: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.25);
   border-radius: 8px;
   position: relative;
   flex-shrink: 0;
