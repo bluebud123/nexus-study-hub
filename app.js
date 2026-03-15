@@ -53,6 +53,10 @@ const Store = {
     if (!merged.strategy.projects) {
       merged.strategy.projects = [];
     }
+    // Remove legacy hardcoded proj-exam that caused "231 days" on new installs
+    merged.strategy.projects = (merged.strategy.projects || []).filter(
+      p => !(p.id === 'proj-exam' && p.deadline === '2026-11-01')
+    );
     // Migrate old short month keys (feb, mar…) to YYYY-MM format
     const _mMap = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
     for (const field of ['milestones', 'allocations', 'notes']) {
@@ -533,8 +537,8 @@ const Views = {
     const stratTotal = allMs.length;
     const stratDone = allMs.filter(m => m.done).length;
     const stratPct = stratTotal ? Math.round((stratDone / stratTotal) * 100) : 0;
-    const examDate = new Date(strat.examDate || '2026-11-01');
-    const daysLeft = Math.max(0, Math.ceil((examDate - new Date()) / 864e5));
+    const examDate = strat.examDate ? new Date(strat.examDate) : null;
+    const daysLeft = examDate ? Math.max(0, Math.ceil((examDate - new Date()) / 864e5)) : null;
 
     const layout = data.dashboardLayout || ['strategy-banner', 'stats-grid', 'open-tasks', 'recent-captures', 'suggestions', 'vault-insights', 'tag-cloud'];
 
@@ -553,7 +557,7 @@ const Views = {
         const projects = s.projects || [];
         const allMs = Object.values(s.milestones).flat();
         const doneMs = allMs.filter(m => m.done).length;
-        const examDate = new Date(s.examDate || (projects[0]?.deadline) || '2026-11-01');
+        const examDate = s.examDate ? new Date(s.examDate) : (projects[0]?.deadline ? new Date(projects[0].deadline) : null);
         return `
         <div class="card dash-strategy-banner">
           <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:stretch;">
@@ -753,8 +757,8 @@ const Views = {
     const now = new Date();
     const _cmk = curMonthKey();
     const curAlloc = data.strategy.allocations[_cmk] || {};
-    const examDate = new Date(data.strategy.examDate || '2026-11-01');
-    const daysLeft = Math.max(0, Math.ceil((examDate - now) / 864e5));
+    const examDate = data.strategy.examDate ? new Date(data.strategy.examDate) : null;
+    const daysLeft = examDate ? Math.max(0, Math.ceil((examDate - now) / 864e5)) : null;
 
     // Schedule
     const userSchedule = data.strategy.schedule || WEEKLY_TEMPLATE;
@@ -818,7 +822,7 @@ const Views = {
 
     return `
       <h1 class="view-title">${dayName}</h1>
-      <p class="view-subtitle">${daysLeft} days to exam &middot; Focus: ${curAlloc.exam || 0}% exam</p>
+      <p class="view-subtitle">${daysLeft !== null ? daysLeft + ' days to exam &middot; ' : ''}Focus: ${curAlloc.exam || 0}% exam</p>
 
       <!-- Quick Add -->
       <div class="today-quick-add">
@@ -1402,8 +1406,8 @@ const Views = {
     const doneMs = allMs.filter(m => m.done).length;
     const pct = totalMs ? Math.round((doneMs / totalMs) * 100) : 0;
 
-    const examDate = new Date(s.examDate || '2026-11-01');
-    const daysLeft = Math.max(0, Math.ceil((examDate - new Date()) / 864e5));
+    const examDate = s.examDate ? new Date(s.examDate) : null;
+    const daysLeft = examDate ? Math.max(0, Math.ceil((examDate - new Date()) / 864e5)) : null;
 
     const roadmapIdx = roadmapMonths.findIndex(m => m.key === month);
     const totalRoadmapMonths = roadmapMonths.length;
@@ -1954,12 +1958,12 @@ const Views = {
       <!-- Stat Cards — one per project + milestones -->
       <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
         ${(s.projects || []).map(proj => {
-          const dl = new Date(proj.deadline);
-          const dLeft = Math.max(0, Math.ceil((dl - new Date()) / 864e5));
+          const dl = proj.deadline ? new Date(proj.deadline) : null;
+          const dLeft = dl && !isNaN(dl) ? Math.max(0, Math.ceil((dl - new Date()) / 864e5)) : null;
           return `<div class="stat-card" style="border-color:${proj.color}40;">
             <div style="font-size:11px; color:${proj.color}; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">${escapeHTML(proj.icon || '')} ${escapeHTML(proj.name)}</div>
-            <div class="stat-number" style="color:${proj.color}; font-size:28px;">${dLeft}</div>
-            <div class="stat-label">days left</div>
+            <div class="stat-number" style="color:${proj.color}; font-size:28px;">${dLeft !== null ? dLeft : '\u2014'}</div>
+            <div class="stat-label">${dLeft !== null ? 'days left' : 'no deadline'}</div>
           </div>`;
         }).join('')}
         <div class="stat-card">
@@ -3534,6 +3538,18 @@ const App = {
     this.showSetupWizard();
   },
 
+  _applyMastersTemplate() {
+    this._setupUseTemplate = true;
+    this._setupTemplateDismissed = true;
+    const hasIt = this._setupProjects.find(p => p._template === 'masters');
+    if (!hasIt) {
+      const d = new Date(); d.setMonth(d.getMonth() + 12);
+      const deadline = d.toISOString().slice(0, 7);
+      this._setupProjects.unshift({ id: 'template-masters', name: "Master's Exam", icon: '\uD83C\uDF93', color: '#7c6ff7', deadline, _template: 'masters' });
+    }
+    this._renderSetup();
+  },
+
   _renderSetup() {
     const step = this._setupStep;
     const TOTAL = 5;
@@ -3592,12 +3608,7 @@ const App = {
                 <span style="color:var(--text);">Basic Science · Trauma · Foot &amp; Ankle · Arthroplasty · OORU · Paeds · Spine · Sport · Hand · VIVA Operative</span>
               </div>
               <div style="display:flex; gap:8px;">
-                <button class="btn btn-primary btn-sm" onclick="
-                  App._setupUseTemplate = true;
-                  App._setupTemplateDismissed = true;
-                  const hasIt = App._setupProjects.find(p => p._template === 'masters');
-                  if (!hasIt) App._setupProjects.unshift({id:'template-masters', name: 'Master\'s Exam', icon:'🎓', color:'#7c6ff7', deadline:'${deadlineDefault}', _template:'masters'});
-                  App._renderSetup();">✓ Yes, use this template</button>
+                <button class="btn btn-primary btn-sm" onclick="App._applyMastersTemplate()">✓ Yes, use this template</button>
                 <button class="btn btn-ghost btn-sm" onclick="App._setupTemplateDismissed=true; App._renderSetup();">No thanks, I'll build my own</button>
               </div>
             </div>
