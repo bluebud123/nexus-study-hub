@@ -1,25 +1,27 @@
 # Nexus — Your Evolution Hub
 
-A personal study dashboard with optional Obsidian vault integration. Built for exam preparation, habit tracking, and daily journaling.
+A personal study dashboard with optional Obsidian vault integration. Built for exam preparation, habit tracking, and daily journaling. Runs entirely on your own machine — no cloud, no accounts.
+
+**Works on Windows, macOS, and Linux.**
 
 ## Features
 
-- **Dashboard** — Exam countdown, streaks, recent captures
-- **Today** — Study timer (Pomodoro/custom/stopwatch), habits, tasks, schedule
+- **Dashboard** — Greeting, streak, goal & habits summary, recent captures, tag cloud
+- **Today** — Study timer (Pomodoro/stopwatch), habits, tasks, daily schedule
 - **Capture** — Quick thoughts with #tag filtering, pin, and convert-to-task
 - **Tasks** — To-do list (+ vault task sync if Obsidian connected)
-- **Journal** — Quick daily log feeding into streaks and weekly reviews
-- **Goals** — Long-term goal tracking with milestones
+- **Journal** — Daily log feeding into streaks, calendar, and weekly reviews
+- **Goals** — Long-term goal tracking with archive (achieved) and give-up flows
+- **Calendar** — Monthly overview with journal, task, habit, and capture dots
 - **Vault** — Browse and search your Obsidian vault (when connected)
-- **Growth** — Stats, heatmap, session history, MCQ performance, weekly review export
-- **Strategy** — Roadmap, monthly allocations, topic tracker, project vault logging
-- **Search** — Search across captures, tasks, journal, and goals
+- **Growth** — Heatmap, streaks, session history, tag trends, knowledge areas, lessons
+- **Strategy** — Roadmap, projects/checklists with revision tracking, goals
 - **Focus Mode** — Distraction-free timer + tasks view
-- **PWA** — Install as a standalone app from your browser
+- **Settings** — Profile, vault connection, appearance, export & import
 
 ---
 
-## Installation (First Time)
+## Installation
 
 ### Step 1 — Install Node.js
 
@@ -27,8 +29,16 @@ Node.js is the engine that runs Nexus. You only need to do this once.
 
 1. Go to [https://nodejs.org](https://nodejs.org)
 2. Download the **LTS** version (the button on the left)
-3. Run the installer — click Next through all the steps, keep all defaults
-4. When done, you have Node.js installed
+3. Run the installer — keep all defaults
+4. Restart your computer after installing
+
+**Verify it worked** — open Terminal (Mac/Linux) or Command Prompt (Windows) and type:
+```
+node --version
+```
+You should see a version number like `v20.x.x`.
+
+---
 
 ### Step 2 — Download Nexus
 
@@ -37,28 +47,52 @@ You don't need a GitHub account to download.
 1. Go to [https://github.com/bluebud123/nexus-study-hub](https://github.com/bluebud123/nexus-study-hub)
 2. Click the green **`< > Code`** button
 3. Click **Download ZIP**
-4. Extract the ZIP to a folder you'll remember (e.g. `C:\Apps\nexus-study-hub`)
+4. Extract the ZIP to a folder you'll remember
 
 > **Tip:** Don't put it in Downloads — files there can get cleaned up accidentally.
+>
+> Good locations:
+> - **Windows:** `C:\Apps\nexus-study-hub`
+> - **Mac:** `/Users/yourname/Apps/nexus-study-hub`
+
+---
 
 ### Step 3 — Run the App
 
-**On Windows (easiest):**
-Double-click `start-nexus.bat` inside the folder. A black window will open — that's normal, keep it open.
+#### Windows (easiest)
+Double-click `start-nexus.bat` inside the folder. A black window will open — keep it open.
 
-**Or using Command Prompt / Terminal:**
+Or using Command Prompt:
 ```
 cd C:\Apps\nexus-study-hub
 node server.js
 ```
+
+#### macOS / Linux
+Open **Terminal**, then:
+```bash
+cd ~/Apps/nexus-study-hub
+node server.js
+```
+
+Or make it a one-click launcher — create a file called `start-nexus.command` with:
+```bash
+#!/bin/bash
+cd "$(dirname "$0")"
+node server.js
+```
+Then run `chmod +x start-nexus.command` once in Terminal, and double-click it anytime.
+
+---
 
 Then open **http://localhost:3456** in your browser.
 
 ### Step 4 — First-Run Setup
 
 A setup wizard will guide you through:
-- Setting your exam date (or skip if not applicable)
+- Setting your name
 - Connecting your Obsidian vault folder (optional)
+- Adding your first project (a Master's Exam template is available)
 
 No Obsidian? No problem — the app works fully without it.
 
@@ -66,73 +100,93 @@ No Obsidian? No problem — the app works fully without it.
 
 ## Updating to a New Version
 
-Your personal data (`nexus-data.json`, `nexus-config.json`) is **never touched** by updates — it stays safe.
+Your personal data (`nexus-data.json`, `nexus-config.json`) is **never touched** by updates.
 
-### Option A — Download ZIP (Beginner, no Git required)
+### Option A — Download ZIP (no Git required)
 
-1. Go to [https://github.com/bluebud123/nexus-study-hub](https://github.com/bluebud123/nexus-study-hub)
-2. Click **`< > Code`** → **Download ZIP**
-3. Extract the ZIP somewhere temporary (e.g. your Desktop)
-4. **Copy** your data files from the old folder to the new folder:
+1. Go to the GitHub repo → **`< > Code`** → **Download ZIP**
+2. Extract to a temporary folder
+3. **Copy your data files** from the old folder to the new one:
    - `nexus-data.json`
    - `nexus-config.json`
    - `backups/` folder (optional, for safety)
-5. Replace the old folder with the new folder
-6. Run `start-nexus.bat` as usual
+4. Replace the old folder with the new one
+5. Start the app as usual
 
-> Your data files are not inside the ZIP — they only exist in your local folder, so this copy step is important.
+### Option B — Git Pull
 
-### Option B — Git Pull (If you used `git clone` to install)
+If you cloned with `git clone`, updating is one command:
 
-If you downloaded using `git clone` originally, updating is one command:
+```bash
+git pull
+```
 
-1. Open Command Prompt / Terminal inside the Nexus folder
-2. Run:
-   ```
-   git pull
-   ```
-3. Restart the app
-
-Your `nexus-data.json` and `nexus-config.json` are gitignored — they will never be overwritten by a pull.
+Then restart the app. Your `nexus-data.json` and `nexus-config.json` are gitignored — they are never overwritten.
 
 ---
 
 ## Data & Privacy
 
-- All data is saved **locally** in `nexus-data.json` (auto-created on first run)
+- All data saved **locally** in `nexus-data.json` (auto-created on first run)
 - Settings saved in `nexus-config.json`
-- Auto-backup keeps the last 5 hourly snapshots in `backups/`
+- Auto-backup keeps the last 10 hourly snapshots in `backups/`
 - No cloud, no accounts, no tracking — everything stays on your machine
 
 ---
 
 ## Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| D | Dashboard |
-| Y | Today |
-| C | Capture |
-| T | Tasks |
-| J | Journal |
-| G | Goals |
-| V | Vault |
-| S | Search |
-| F | Focus Mode |
-| ? | Shortcuts & Guide |
+All shortcuts use **Ctrl+Shift+** (Windows/Linux) or **Cmd+Shift+** (Mac) to avoid accidental activation.
+
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+Shift+D | Dashboard |
+| Ctrl+Shift+Y | Today |
+| Ctrl+Shift+C | Capture |
+| Ctrl+Shift+T | Tasks |
+| Ctrl+Shift+J | Journal |
+| Ctrl+Shift+G | Goals |
+| Ctrl+Shift+V | Vault |
+| Ctrl+Shift+S | Search |
+| Ctrl+Shift+F | Focus Mode |
+
+---
+
+## Vault Connection (Obsidian)
+
+When you connect your Obsidian vault folder in Settings, Nexus gains extra features:
+
+- **Rapid log** — journal entries can be saved to your daily vault note
+- **Capture bridge** — captures are appended to a quick-capture file in your vault
+- **Calendar** — vault daily entries show as journal dots on the calendar
+- **Growth** — tag trends include vault entries; knowledge areas match vault files by keyword
+- **Task sync** — reads tasks (checkboxes) from vault markdown files
+
+**Vault path examples:**
+- Windows: `C:\Users\yourname\Documents\MyVault`
+- Mac: `/Users/yourname/Documents/MyVault`
 
 ---
 
 ## Troubleshooting
 
-**App won't start — "node is not recognized"**
-Node.js isn't installed or wasn't added to PATH. Re-run the Node.js installer and check "Add to PATH" during setup, then restart your computer.
+**"node is not recognized" / "command not found: node"**
+Node.js isn't installed or wasn't added to PATH. Re-run the Node.js installer and restart your computer.
 
 **Port already in use**
-Another app is using port 3456. Open `server.js` and change `3456` near the top to another number like `3457`, then open `http://localhost:3457` instead.
+Another app is using port 3456. Open `server.js` and change `3456` near the top to another number like `3457`, then open `http://localhost:3457`.
 
-**Black window closes immediately when I double-click the .bat file**
-Right-click `start-nexus.bat` → **Run as administrator**, or open a Command Prompt and run `node server.js` to see the error message.
+**Windows: Black window closes immediately**
+Right-click `start-nexus.bat` → **Run as administrator**, or open Command Prompt and run `node server.js` to see the error message.
+
+**Mac: "permission denied" on start-nexus.command**
+Run once in Terminal:
+```bash
+chmod +x ~/Apps/nexus-study-hub/start-nexus.command
+```
+
+**Mac: "cannot be opened because the developer cannot be verified"**
+Right-click the file → **Open** → **Open** in the dialog. This only needs to be done once.
 
 **I lost my data after updating**
-Check the `backups/` folder inside the app directory — hourly snapshots are saved there automatically.
+Check the `backups/` folder — hourly snapshots are saved there automatically. You can restore by copying the most recent backup file and renaming it to `nexus-data.json`.
