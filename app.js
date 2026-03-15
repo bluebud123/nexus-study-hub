@@ -2514,17 +2514,30 @@ const Views = {
           else areas.sort((a, b) => (b.fileCount || 0) - (a.fileCount || 0));
           const maxFiles = Math.max(...areas.map(x => x.fileCount || 0), 1);
           if (!areas.length) return '<div style="font-size:12px;color:var(--text-dim);padding:8px 0;">No areas defined yet — add one below to start tracking.</div>';
+          const editingArea = App._editingKbArea;
           return areas.map(a => {
             const pct = Math.round((a.fileCount / maxFiles) * 100);
+            const isEditing = !a.isGeneral && editingArea === a.name;
             const chips = a.keywords.map(k => `<span style="font-size:10px;color:var(--accent);background:var(--accent)15;border-radius:3px;padding:1px 5px;margin-right:3px;">${escapeHTML(k)}</span>`).join('');
+            if (isEditing) {
+              return `<div style="margin-bottom:12px; padding:8px; background:var(--bg-input); border-radius:6px; border:1px solid var(--accent)40;">
+                <div style="font-size:12px; font-weight:600; margin-bottom:6px; color:var(--accent);">✎ Edit — ${escapeHTML(a.name)}</div>
+                <input id="edit-area-kw-${escapeHTML(a.name)}" value="${escapeHTML(a.keywords.join(', '))}" class="strat-settings-input" style="width:100%; font-size:12px;" placeholder="Keywords: spine, hip, knee">
+                <div style="display:flex; gap:6px; margin-top:6px; justify-content:flex-end;">
+                  <button class="btn btn-ghost btn-sm" onclick="App._editingKbArea=null; App.render()">Cancel</button>
+                  <button class="btn btn-primary btn-sm" onclick="App.saveKnowledgeAreaKeywords('${escapeHTML(a.name)}', document.getElementById('edit-area-kw-${escapeHTML(a.name)}').value)">Save</button>
+                </div>
+              </div>`;
+            }
             return `<div style="margin-bottom:12px;">
               <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
-                <div>
+                <div style="flex:1;">
                   <span style="font-size:13px; font-weight:600;">${escapeHTML(a.name)}${a.isGeneral ? ' <span style="font-size:10px;color:var(--text-dim);font-weight:400;">(unmatched)</span>' : ''}</span>
-                  ${chips ? `<div style="margin-top:3px;">${chips}</div>` : ''}
+                  ${chips ? `<div style="margin-top:3px;">${chips}</div>` : '<div style="margin-top:2px; font-size:10px; color:var(--text-dim);">No keywords — all unmatched files land here</div>'}
                 </div>
-                <div style="display:flex; align-items:center; gap:8px; flex-shrink:0; margin-left:8px;">
+                <div style="display:flex; align-items:center; gap:6px; flex-shrink:0; margin-left:8px;">
                   <span style="font-size:11px;color:var(--text-dim);">${a.fileCount} files${a.lastUpdated ? ' · ' + a.lastUpdated : ''}</span>
+                  ${!a.isGeneral ? `<button onclick="App._editingKbArea='${escapeHTML(a.name)}'; App.render()" title="Edit keywords" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:12px;padding:0 2px;opacity:0.5;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5">✎</button>` : ''}
                   ${!a.isGeneral ? `<button onclick="App.deleteKnowledgeArea('${escapeHTML(a.name)}')" title="Remove area" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:13px;padding:0 2px;opacity:0.5;" onmouseover="this.style.opacity=1;this.style.color='var(--red)'" onmouseout="this.style.opacity=0.5;this.style.color='var(--text-dim)'">✕</button>` : ''}
                 </div>
               </div>
@@ -3423,6 +3436,7 @@ const App = {
   growthTagFilter: '',
   growthTagEntries: null,
   growthSort: 'recent',
+  _editingKbArea: null,
   weeklyReview: null,
   showShortcutHelp: false,
 
@@ -3988,7 +4002,7 @@ const App = {
         } else if (li.dataset.view === 'growth' && !this.growthData) {
           this.render();
           VaultAPI.getGrowth().then(data => { this.growthData = data; this.render(); }).catch(() => {});
-        } else if (li.dataset.view === 'journal' || li.dataset.view === 'today') {
+        } else if (li.dataset.view === 'journal' || li.dataset.view === 'today' || li.dataset.view === 'calendar') {
           this.render();
           this.loadVaultDailyEntries();
         } else {
@@ -4289,10 +4303,10 @@ const App = {
   async loadVaultDailyEntries() {
     if (!this.vaultAvailable) return;
     try {
-      // Load last 10 days of entries
+      // Load enough days to cover the calendar view (45 = current month + previous month buffer)
       const today = new Date();
       const entries = [];
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 45; i++) {
         const d = new Date(today);
         d.setDate(d.getDate() - i);
         const dateStr = d.toISOString().slice(0, 10);
@@ -4302,7 +4316,7 @@ const App = {
         }
       }
       this.vaultDailyEntries = entries;
-      if (this.currentView === 'journal' || this.currentView === 'today') this.render();
+      if (['journal', 'today', 'calendar'].includes(this.currentView)) this.render();
     } catch {}
   },
 
@@ -5219,10 +5233,22 @@ const App = {
     if (this.vaultAvailable) this.loadGrowthData?.();
   },
 
+  saveKnowledgeAreaKeywords(name, keywordsStr) {
+    const kws = (keywordsStr || '').split(',').map(k => k.trim().toLowerCase()).filter(Boolean);
+    Store.update(d => {
+      const area = (d.customKnowledgeAreas || []).find(a => a.name === name);
+      if (area) area.keywords = kws;
+    });
+    this._editingKbArea = null;
+    this.render();
+    if (this.vaultAvailable) this.loadGrowthData?.();
+  },
+
   deleteKnowledgeArea(name) {
     Store.update(d => {
       d.customKnowledgeAreas = (d.customKnowledgeAreas || []).filter(a => a.name !== name);
     });
+    this._editingKbArea = null;
     this.render();
   },
 
