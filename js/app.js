@@ -1159,8 +1159,10 @@ export const App = {
   setStrategyTab(t) {
     this.strategyTab = t;
     if (t === 'projects') {
-      history.pushState({ view: 'strategy', strategyTab: 'projects', strategyProject: this.strategyProject }, '', '#strategy');
+      this.strategyProject = null; // Show project list first
+      history.pushState({ view: 'strategy', strategyTab: 'projects', strategyProject: null }, '', '#strategy');
     } else {
+      this.strategyProject = null;
       history.pushState({ view: 'strategy', strategyTab: 'roadmap' }, '', '#strategy');
     }
     this.render();
