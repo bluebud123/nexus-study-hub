@@ -70,6 +70,19 @@ export const Store = {
       }
     }
     if (!merged.taskSource) merged.taskSource = 'both';
+
+    // ── Data validation: ensure arrays are arrays, objects are objects ──
+    const arrayFields = ['captures', 'tasks', 'journal', 'goals', 'checklists', 'mcqScores', 'topics'];
+    for (const f of arrayFields) {
+      if (!Array.isArray(merged[f])) merged[f] = defaults[f] || [];
+    }
+    if (!merged.streak || typeof merged.streak !== 'object') merged.streak = defaults.streak;
+    if (!merged.habits || typeof merged.habits !== 'object') merged.habits = defaults.habits;
+    if (!Array.isArray(merged.habits.definitions)) merged.habits.definitions = [];
+    if (!merged.habits.log || typeof merged.habits.log !== 'object') merged.habits.log = {};
+    if (!Array.isArray(merged.strategy.schedule)) merged.strategy.schedule = defaults.strategy.schedule;
+    if (!Array.isArray(merged.strategy.projects)) merged.strategy.projects = [];
+
     return merged;
   },
 
