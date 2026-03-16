@@ -1487,7 +1487,12 @@ export const Views = {
                       const isEditingIt = App._editingItem && App._editingItem.clId === activeCL.id && App._editingItem.secIdx === secIdx && App._editingItem.itemIdx === itemIdx;
 
                       return `
-                        <div style="display:flex; align-items:flex-start; gap:6px; padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
+                        <div style="display:flex; align-items:flex-start; gap:6px; padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.04);"
+                          draggable="true"
+                          ondragstart="App.onItemDragStart(event, '${activeCL.id}', ${secIdx}, ${itemIdx})"
+                          ondragover="event.preventDefault(); this.style.borderTop='2px solid var(--accent)'"
+                          ondragleave="this.style.borderTop=''"
+                          ondrop="this.style.borderTop=''; App.onItemDrop(event, '${activeCL.id}', ${secIdx}, ${itemIdx})">
                           <!-- Revision circle/dots — clickable -->
                           <div style="display:flex; gap:3px; align-items:center; flex-shrink:0; padding-top:3px; cursor:pointer;" onclick="App.addRevision('${activeCL.id}', ${secIdx}, ${itemIdx})" title="Log review">
                             ${revs.length === 0

@@ -2833,6 +2833,30 @@ export const App = {
   // ─── Schedule/Habit Drag Reorder ────────────
   _schedDragIdx: null,
 
+  // ─── Checklist Item Drag & Drop ──────────────
+  onItemDragStart(e, clId, secIdx, itemIdx) {
+    this._itemDrag = { clId, secIdx, itemIdx };
+    e.dataTransfer.effectAllowed = 'move';
+  },
+
+  onItemDrop(e, clId, targetSecIdx, targetItemIdx) {
+    e.preventDefault();
+    const src = this._itemDrag;
+    if (!src || src.clId !== clId) { this._itemDrag = null; return; }
+    if (src.secIdx === targetSecIdx && src.itemIdx === targetItemIdx) { this._itemDrag = null; return; }
+    Store.update(d => {
+      const cl = d.checklists.find(c => c.id === clId);
+      if (!cl) return;
+      const srcSec = cl.sections[src.secIdx];
+      const tgtSec = cl.sections[targetSecIdx];
+      if (!srcSec || !tgtSec) return;
+      const [item] = srcSec.items.splice(src.itemIdx, 1);
+      tgtSec.items.splice(targetItemIdx, 0, item);
+    });
+    this._itemDrag = null;
+    this.render();
+  },
+
   onSchedDragStart(e, idx) {
     this._schedDragIdx = idx;
     e.dataTransfer.effectAllowed = 'move';
