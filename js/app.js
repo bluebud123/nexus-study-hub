@@ -792,7 +792,31 @@ export const App = {
       if (this._tutorialActive) {
         requestAnimationFrame(() => this._positionTutorialTooltip());
       }
+      // Update nav badges
+      this._updateNavBadges();
     }
+  },
+
+  _updateNavBadges() {
+    const data = Store.get();
+    const localOpen = data.tasks.filter(t => !t.done).length;
+    const vaultActive = this.vaultTasks ? (this.vaultTasks.summary?.activeCount || 0) : 0;
+    const openTasks = localOpen + vaultActive;
+    const badges = { tasks: openTasks || null };
+    document.querySelectorAll('#nav-links li').forEach(li => {
+      const view = li.dataset.view;
+      let badge = li.querySelector('.nav-badge');
+      if (badges[view]) {
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'nav-badge';
+          li.appendChild(badge);
+        }
+        badge.textContent = badges[view];
+      } else if (badge) {
+        badge.remove();
+      }
+    });
   },
 
   // ─── Capture Actions ──────────────────────────
