@@ -94,6 +94,7 @@ export const Store = {
     } catch {
       // Offline fallback
       this._data = this._defaults();
+      toast('Could not connect to server — running with defaults');
     }
   },
 
@@ -106,7 +107,9 @@ export const Store = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(this._data)
       });
-    } catch { /* silent */ }
+    } catch {
+      toast('Could not save — will retry');
+    }
     this._saving = false;
     if (this._dirty) { this._dirty = false; this._saveToServer(); }
   },

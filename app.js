@@ -97,5 +97,17 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// ── Global Error Handlers ─────────────────────────
+window.addEventListener('error', (e) => {
+  console.error('Uncaught error:', e.error);
+  toast('Something went wrong — check console for details');
+});
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('Unhandled promise:', e.reason);
+  // Don't toast for network failures (fetch) — those are expected offline
+  if (e.reason?.message?.includes('fetch')) return;
+  toast('Something went wrong — check console for details');
+});
+
 // ── Boot ───────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => App.init());

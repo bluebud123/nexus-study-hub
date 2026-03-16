@@ -679,13 +679,25 @@ export const App = {
   render() {
     // Focus mode: render focus view directly
     if (this.focusMode) {
-      let html = Views.focus();
-      document.getElementById('content').innerHTML = html;
+      try {
+        let html = Views.focus();
+        document.getElementById('content').innerHTML = html;
+      } catch (err) {
+        console.error('Focus view error:', err);
+        document.getElementById('content').innerHTML = this._errorPage('focus', err);
+      }
       return;
     }
     const view = Views[this.currentView];
     if (view) {
-      let html = view();
+      let html;
+      try {
+        html = view();
+      } catch (err) {
+        console.error(`View "${this.currentView}" error:`, err);
+        document.getElementById('content').innerHTML = this._errorPage(this.currentView, err);
+        return;
+      }
 
       // FAB (floating quick-add) — shown on all views except capture
       if (this.currentView !== 'capture') {
@@ -2857,6 +2869,27 @@ export const App = {
     });
     this._dashDragKey = null;
     this.render();
+  },
+
+  // ─── Error Boundary ─────────────────────────
+  _errorPage(viewName, err) {
+    return `
+      <div style="padding:40px 24px; text-align:center; max-width:500px; margin:0 auto;">
+        <div style="font-size:48px; margin-bottom:16px;">⚠️</div>
+        <h2 style="color:var(--text); margin-bottom:8px;">Something went wrong</h2>
+        <p style="color:var(--text-dim); margin-bottom:24px;">
+          The <strong>${escapeHTML(viewName)}</strong> view encountered an error.
+          Your data is safe — try navigating to another view.
+        </p>
+        <details style="text-align:left; background:var(--bg-input); padding:12px; border-radius:8px; margin-bottom:24px;">
+          <summary style="cursor:pointer; color:var(--text-dim); font-size:12px;">Technical details</summary>
+          <pre style="font-size:11px; color:var(--danger); margin-top:8px; white-space:pre-wrap; word-break:break-all;">${escapeHTML(err.message || String(err))}</pre>
+        </details>
+        <div style="display:flex; gap:8px; justify-content:center;">
+          <button class="btn btn-primary" onclick="App.navigateTo('dashboard')">Go to Dashboard</button>
+          <button class="btn btn-ghost" onclick="location.reload()">Reload App</button>
+        </div>
+      </div>`;
   },
 
   // ─── Theme Toggle ────────────────────────────
