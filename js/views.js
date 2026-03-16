@@ -2999,6 +2999,16 @@ export const Views = {
           <button class="btn btn-ghost btn-sm" onclick="App.startTutorial()" style="margin-left:8px;">&#128218; Interactive Tour</button>
         </div>
         <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
+          <div style="font-size:12px; font-weight:600; color:var(--text); margin-bottom:4px;">Backups</div>
+          <div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">Auto-backups run hourly. You can also create a manual backup anytime.</div>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-sm" onclick="App.createManualBackup()">&#128190; Create Backup Now</button>
+            <button class="btn btn-ghost btn-sm" onclick="App.showBackupInfo()">&#128196; View Backups</button>
+            <span id="backup-status" style="font-size:11px; color:var(--text-dim);"></span>
+          </div>
+          <div id="backup-list" style="margin-top:8px;"></div>
+        </div>
+        <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
           <div style="font-size:12px; font-weight:600; color:var(--text); margin-bottom:4px;">Update Nexus</div>
           <div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">Pull the latest version from GitHub. Your data will be backed up automatically.</div>
           <button class="btn btn-primary btn-sm" id="update-nexus-btn" onclick="App.checkForUpdates()">&#8635; Check for Updates</button>

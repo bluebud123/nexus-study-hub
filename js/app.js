@@ -2938,6 +2938,50 @@ export const App = {
     if (btn) btn.disabled = false;
   },
 
+  async createManualBackup() {
+    const status = document.getElementById('backup-status');
+    if (status) status.textContent = 'Creating backup...';
+    try {
+      const res = await fetch('/api/backups', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        if (status) status.innerHTML = `<span style="color:var(--green);">Saved: ${escapeHTML(data.name)}</span>`;
+        toast('Backup created');
+      } else {
+        if (status) status.innerHTML = `<span style="color:var(--red);">Failed</span>`;
+      }
+    } catch {
+      if (status) status.innerHTML = '<span style="color:var(--red);">Could not reach server</span>';
+    }
+  },
+
+  async showBackupInfo() {
+    const list = document.getElementById('backup-list');
+    if (!list) return;
+    if (list.innerHTML) { list.innerHTML = ''; return; } // toggle
+    list.innerHTML = '<div style="font-size:11px; color:var(--text-dim);">Loading...</div>';
+    try {
+      const res = await fetch('/api/backups');
+      const data = await res.json();
+      if (!data.backups.length) {
+        list.innerHTML = '<div style="font-size:11px; color:var(--text-dim);">No backups yet.</div>';
+        return;
+      }
+      list.innerHTML = `<div style="font-size:11px; border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        ${data.backups.map(b => {
+          const d = new Date(b.date);
+          const size = b.size > 1024 ? (b.size / 1024).toFixed(0) + ' KB' : b.size + ' B';
+          return `<div style="display:flex; justify-content:space-between; padding:4px 8px; border-bottom:1px solid var(--border);">
+            <span style="color:var(--text);">${escapeHTML(b.name)}</span>
+            <span style="color:var(--text-dim);">${size} · ${d.toLocaleDateString(undefined, { month:'short', day:'numeric' })} ${d.toLocaleTimeString(undefined, { hour:'numeric', minute:'2-digit' })}</span>
+          </div>`;
+        }).join('')}
+      </div>`;
+    } catch {
+      list.innerHTML = '<div style="font-size:11px; color:var(--red);">Could not load backup info</div>';
+    }
+  },
+
   setAccentColor(color) {
     Store.update(d => { d.accentColor = color; });
     document.documentElement.style.setProperty('--accent', color);

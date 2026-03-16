@@ -131,7 +131,7 @@ async function nexusDataWrite(data) {
   // Hourly auto-backup in backups/
   try {
     await fs.promises.mkdir(NEXUS_BACKUP_DIR, { recursive: true });
-    const backupName = `nexus-data-${new Date().toISOString().slice(0, 13)}.json`;
+    const backupName = `nexus-data-${new Date().toISOString().slice(0, 13).replace('T', '-h')}.json`;
     const backupFile = path.join(NEXUS_BACKUP_DIR, backupName);
     try { await fs.promises.access(backupFile); } catch {
       const tmp = backupFile + '.tmp';
@@ -1401,6 +1401,35 @@ async function handleAPI(req, res, pathname, query) {
         return jsonRes(res, { current: dir.replace(/\\/g, '/'), folders, parent: path.dirname(dir).replace(/\\/g, '/') });
       } catch {
         return jsonRes(res, { current: dir, folders: [], parent: path.dirname(dir).replace(/\\/g, '/') });
+      }
+    }
+
+    // ── Backup Info ──
+    if (pathname === '/api/backups' && method === 'GET') {
+      try {
+        await fs.promises.mkdir(NEXUS_BACKUP_DIR, { recursive: true });
+        const files = (await fs.promises.readdir(NEXUS_BACKUP_DIR))
+          .filter(f => f.startsWith('nexus-data-') && f.endsWith('.json')).sort().reverse();
+        const backups = [];
+        for (const f of files.slice(0, 10)) {
+          const stat = await fs.promises.stat(path.join(NEXUS_BACKUP_DIR, f));
+          backups.push({ name: f, size: stat.size, date: stat.mtime });
+        }
+        return jsonRes(res, { count: files.length, backups });
+      } catch { return jsonRes(res, { count: 0, backups: [] }); }
+    }
+
+    // ── Manual Backup ──
+    if (pathname === '/api/backups' && method === 'POST') {
+      try {
+        await fs.promises.mkdir(NEXUS_BACKUP_DIR, { recursive: true });
+        const data = await fs.promises.readFile(NEXUS_DATA_FILE, 'utf8');
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const backupName = `nexus-data-manual-${ts}.json`;
+        await fs.promises.writeFile(path.join(NEXUS_BACKUP_DIR, backupName), data, 'utf8');
+        return jsonRes(res, { success: true, name: backupName });
+      } catch (err) {
+        return jsonRes(res, { success: false, error: err.message });
       }
     }
 
