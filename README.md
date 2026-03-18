@@ -6,18 +6,18 @@ A personal study dashboard with optional Obsidian vault integration. Built for e
 
 ## Features
 
-- **Dashboard** — Greeting, streak, goal & habits summary, recent captures, tag cloud
+- **Dashboard** — Greeting, streak badges, goal & habits summary, daily quest nudge, tag cloud
 - **Today** — Study timer (Pomodoro/stopwatch), habits, tasks, daily schedule
 - **Capture** — Quick thoughts with #tag filtering, pin, and convert-to-task
 - **Tasks** — To-do list (+ vault task sync if Obsidian connected)
-- **Journal** — Daily log feeding into streaks, calendar, and weekly reviews
+- **Journal** — Daily log with optional AI-generated insights (bring your own key)
 - **Goals** — Long-term goal tracking with archive (achieved) and give-up flows
 - **Calendar** — Monthly overview with journal, task, habit, and capture dots
 - **Vault** — Browse and search your Obsidian vault (when connected)
 - **Growth** — Heatmap, streaks, session history, tag trends, knowledge areas, lessons
-- **Strategy** — Roadmap, projects/checklists with revision tracking, goals
+- **Strategy** — Roadmap, projects/checklists with revision tracking, milestone progress
 - **Focus Mode** — Distraction-free timer + tasks view
-- **Settings** — Profile, vault connection, appearance, export & import
+- **Settings** — Profile, vault connection, appearance (24-colour palette), AI settings, export & import
 
 ---
 
@@ -87,7 +87,21 @@ Then run `chmod +x start-nexus.command` once in Terminal, and double-click it an
 
 Then open **http://localhost:3456** in your browser.
 
-### Step 4 — First-Run Setup
+### Step 4 — Load Sample Data (optional)
+
+If this is your first time, you can start with example data to see how everything looks:
+
+```bash
+# Mac / Linux
+cp nexus-data.sample.json nexus-data.json
+
+# Windows (Command Prompt)
+copy nexus-data.sample.json nexus-data.json
+```
+
+The sample includes a study checklist, tasks, journal entries, habits, and goals. Replace it with your own data whenever you're ready — or just start fresh by leaving `nexus-data.json` absent (the app creates an empty one on first run).
+
+### Step 5 — First-Run Setup
 
 A setup wizard will guide you through:
 - Setting your name
@@ -165,6 +179,61 @@ When you connect your Obsidian vault folder in Settings, Nexus gains extra featu
 **Vault path examples:**
 - Windows: `C:\Users\yourname\Documents\MyVault`
 - Mac: `/Users/yourname/Documents/MyVault`
+
+---
+
+## Desktop App (Electron)
+
+Run Nexus as a standalone desktop app — no browser, no terminal window visible to the user.
+
+### Build from source
+
+**Prerequisites:** Node.js installed (see above)
+
+```bash
+# Install dependencies (one-time)
+npm install
+
+# Run as desktop app (dev mode)
+npm run electron
+
+# Build installer
+npm run build:win    # Windows → dist/Nexus Setup.exe
+npm run build:mac    # macOS  → dist/Nexus.dmg
+npm run build:linux  # Linux  → dist/Nexus.AppImage
+```
+
+The built installer bundles everything — users don't need Node.js installed.
+
+---
+
+## AI Insights (optional, bring your own key)
+
+Nexus can analyse your journal entries and give you weekly reflections. It uses your **own** API key — no subscription, no data sent to Nexus servers.
+
+**Supported providers:** Claude (Anthropic), ChatGPT (OpenAI), Gemini (Google)
+
+**Setup:**
+1. Go to **Settings → AI Settings**
+2. Select your provider
+3. Paste your API key (stored locally in `nexus-data.json`, never shared)
+4. Toggle **AI features on**
+5. Open **Journal** → click **✨ AI Insights**
+
+**Cost:** Uses the cheapest model for each provider (Haiku / GPT-4o-mini / Gemini Flash). A typical request costs less than $0.01.
+
+To remove your key at any time: Settings → AI Settings → **Clear Key**.
+
+---
+
+## Cross-Device Sync
+
+Nexus is local-first — data lives in `nexus-data.json`. To sync across devices, see **[sync.md](sync.md)** for a full guide covering:
+
+- **Syncthing** — free, P2P, no cloud account required (recommended)
+- **Private Git repo** — free, with helper scripts included
+- **Cloud folder** — OneDrive / Google Drive / Dropbox
+- **Self-hosted VPS** — full control, ~$4/month
 
 ---
 
