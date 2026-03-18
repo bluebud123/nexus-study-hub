@@ -376,7 +376,7 @@ export function strategy() {
             <button class="strat-month-pill" onclick="App._projAddOpen=!App._projAddOpen; App.render();" style="color:var(--accent); border-color:var(--accent)60;">+ Add</button>
             ${window.App._projAddOpen ? `
               <div style="position:absolute; top:36px; left:0; z-index:100; background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:10px; min-width:220px; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
-                <button class="btn btn-primary" style="width:100%; margin-bottom:8px;" onclick="App._projAddOpen=false; App.uploadChecklist()">⬆ Upload .md file</button>
+                <button class="btn btn-ghost" style="width:100%; margin-bottom:8px;" onclick="App._projAddOpen=false; App.uploadChecklist()">⬆ Upload .md file</button>
                 <div style="display:flex; gap:6px; margin-bottom:8px;">
                   <button class="btn btn-ghost btn-sm" style="flex:1;" onclick="App.downloadChecklistTemplate()">↓ Template</button>
                   <button class="btn btn-ghost btn-sm" style="flex:1;" onclick="App.copyAIPrompt()">⧉ AI Prompt</button>
