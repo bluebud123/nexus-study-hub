@@ -109,5 +109,34 @@ window.addEventListener('unhandledrejection', (e) => {
   toast('Something went wrong — check console for details');
 });
 
+// ── Touch Gestures (swipe to navigate views) ─────
+const NAV_VIEWS = ['dashboard', 'today', 'capture', 'tasks', 'journal', 'vault', 'growth', 'strategy', 'calendar'];
+let _touchStartX = 0, _touchStartY = 0, _touchStartTime = 0;
+
+document.addEventListener('touchstart', (e) => {
+  _touchStartX = e.changedTouches[0].screenX;
+  _touchStartY = e.changedTouches[0].screenY;
+  _touchStartTime = Date.now();
+}, { passive: true });
+
+document.addEventListener('touchend', (e) => {
+  const dx = e.changedTouches[0].screenX - _touchStartX;
+  const dy = e.changedTouches[0].screenY - _touchStartY;
+  const dt = Date.now() - _touchStartTime;
+  // Must be fast (<400ms), horizontal (>80px), and not too vertical
+  if (dt > 400 || Math.abs(dx) < 80 || Math.abs(dy) > Math.abs(dx) * 0.5) return;
+  // Don't swipe when focused on inputs or during drag
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+  const idx = NAV_VIEWS.indexOf(App.currentView);
+  if (idx === -1) return;
+  if (dx > 0 && idx > 0) App.navigateTo(NAV_VIEWS[idx - 1]);
+  else if (dx < 0 && idx < NAV_VIEWS.length - 1) App.navigateTo(NAV_VIEWS[idx + 1]);
+}, { passive: true });
+
+// ── PWA Service Worker Registration ───────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
 // ── Boot ───────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => App.init());

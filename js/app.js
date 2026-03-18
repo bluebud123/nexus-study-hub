@@ -676,7 +676,27 @@ export const App = {
     });
   },
 
+  _renderRAF: null,
+  _lastRenderTime: 0,
+
   render() {
+    // If >50ms since last render, execute immediately; otherwise coalesce via rAF
+    const now = performance.now();
+    if (now - this._lastRenderTime > 50) {
+      if (this._renderRAF) { cancelAnimationFrame(this._renderRAF); this._renderRAF = null; }
+      this._lastRenderTime = now;
+      this._doRender();
+    } else {
+      if (this._renderRAF) cancelAnimationFrame(this._renderRAF);
+      this._renderRAF = requestAnimationFrame(() => {
+        this._renderRAF = null;
+        this._lastRenderTime = performance.now();
+        this._doRender();
+      });
+    }
+  },
+
+  _doRender() {
     // Focus mode: render focus view directly
     if (this.focusMode) {
       try {
@@ -1492,6 +1512,56 @@ export const App = {
       a.click();
       URL.revokeObjectURL(url);
     } catch { toast('Export failed'); }
+  },
+
+  // ─── CSV Export ─────────────────────────────────
+  _csvDownload(filename, rows) {
+    const escape = v => {
+      const s = v == null ? '' : String(v);
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const text = rows.map(r => r.map(escape).join(',')).join('\r\n');
+    const blob = new Blob(['\uFEFF' + text], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },
+
+  exportTasksCSV() {
+    const data = Store.get();
+    const rows = [['ID', 'Text', 'Done', 'Done Date', 'Due', 'Tags', 'Source']];
+    for (const t of data.tasks) {
+      rows.push([t.id, t.text, t.done ? 'yes' : 'no', t.doneDate || '', t.due || '', (t.tags || []).join(' '), 'nexus']);
+    }
+    if (this.vaultTasks) {
+      for (const t of (this.vaultTasks.pending || [])) rows.push([t.id || '', t.text, 'no', '', t.due || '', (t.tags || []).join(' '), 'vault']);
+      for (const t of (this.vaultTasks.done || [])) rows.push([t.id || '', t.text, 'yes', t.doneDate || '', '', (t.tags || []).join(' '), 'vault']);
+    }
+    this._csvDownload(`nexus_tasks_${localDateKey()}.csv`, rows);
+    toast('Tasks exported as CSV');
+  },
+
+  exportJournalCSV() {
+    const data = Store.get();
+    const rows = [['ID', 'Date', 'Mood', 'Text']];
+    for (const j of data.journal) {
+      rows.push([j.id, j.date || localDateKey(new Date(j.ts || 0)), j.mood || '', j.text]);
+    }
+    this._csvDownload(`nexus_journal_${localDateKey()}.csv`, rows);
+    toast('Journal exported as CSV');
+  },
+
+  exportCapturesCSV() {
+    const data = Store.get();
+    const rows = [['ID', 'Date', 'Tags', 'Text']];
+    for (const c of data.captures) {
+      rows.push([c.id, localDateKey(new Date(c.created || c.ts || 0)), (c.tags || []).join(' '), c.text]);
+    }
+    this._csvDownload(`nexus_captures_${localDateKey()}.csv`, rows);
+    toast('Captures exported as CSV');
   },
 
   _importWizard: null, // null | { step: 1|2a|2b|3, choice: null|'backup'|'vault', preview: null, newVault: '' }
@@ -2895,6 +2965,7 @@ export const App = {
 
   // ─── Dashboard Drag ─────────────────────────
   _dashDragKey: null,
+  _dashReorder: false,
 
   onDashDragStart(e, key) {
     this._dashDragKey = key;
@@ -2916,6 +2987,20 @@ export const App = {
       d.dashboardLayout = layout;
     });
     this._dashDragKey = null;
+    this.render();
+  },
+
+  moveDashCard(key, direction) {
+    const DEFAULT_LAYOUT = ['strategy-banner', 'stats-grid', 'open-tasks', 'recent-captures', 'suggestions', 'vault-insights', 'tag-cloud'];
+    Store.update(d => {
+      const layout = d.dashboardLayout || [...DEFAULT_LAYOUT];
+      const idx = layout.indexOf(key);
+      const target = idx + direction;
+      if (idx === -1 || target < 0 || target >= layout.length) return;
+      layout.splice(idx, 1);
+      layout.splice(target, 0, key);
+      d.dashboardLayout = layout;
+    });
     this.render();
   },
 
@@ -3148,6 +3233,72 @@ export const App = {
     a.click();
     URL.revokeObjectURL(a.href);
     toast('Journal exported');
+  },
+
+  // ─── CSV Exports ──────────────────────────────
+  _downloadCSV(filename, headers, rows) {
+    const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [headers.map(escape).join(',')];
+    for (const row of rows) lines.push(row.map(escape).join(','));
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },
+
+  exportTasksCSV() {
+    const data = Store.get();
+    const headers = ['Text', 'Status', 'Due', 'Tags', 'Done Date', 'Source'];
+    const rows = data.tasks.map(t => [
+      t.text,
+      t.done ? 'Done' : 'Open',
+      t.due || '',
+      (t.tags || []).join(', '),
+      t.doneDate || '',
+      t.vault ? 'Vault' : 'Nexus',
+    ]);
+    this._downloadCSV(`tasks-${todayKey()}.csv`, headers, rows);
+    toast('Tasks exported as CSV');
+  },
+
+  exportJournalCSV() {
+    const data = Store.get();
+    const entries = [...data.journal].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const headers = ['Date', 'Mood', 'Text'];
+    const rows = entries.map(e => [e.date || '', e.mood || '', e.text || '']);
+    this._downloadCSV(`journal-${todayKey()}.csv`, headers, rows);
+    toast('Journal exported as CSV');
+  },
+
+  exportCapturesCSV() {
+    const data = Store.get();
+    const headers = ['Date', 'Text', 'Tags'];
+    const rows = data.captures.map(c => [
+      c.created ? localDateKey(new Date(c.created)) : '',
+      c.text || '',
+      (c.text.match(/#\w+/g) || []).join(', '),
+    ]);
+    this._downloadCSV(`captures-${todayKey()}.csv`, headers, rows);
+    toast('Captures exported as CSV');
+  },
+
+  exportHabitsCSV() {
+    const data = Store.get();
+    const schedule = data.strategy?.schedule || [];
+    const habitDefs = data.habits?.definitions || [];
+    const allItems = [...schedule.map((s, i) => ({ name: s.label, key: 'slot-' + i, type: 'schedule' })),
+                      ...habitDefs.map(h => ({ name: h.name, key: h.id, type: 'habit' }))];
+    const log = { ...(data.scheduleLog || {}), ...(data.habits?.log || {}) };
+    const dates = Object.keys(log).sort();
+    const headers = ['Date', ...allItems.map(i => i.name)];
+    const rows = dates.map(d => {
+      const dayLog = { ...(data.scheduleLog?.[d] || {}), ...(data.habits?.log?.[d] || {}) };
+      return [d, ...allItems.map(i => dayLog[i.key] ? 'Yes' : '')];
+    });
+    this._downloadCSV(`habits-${todayKey()}.csv`, headers, rows);
+    toast('Habits exported as CSV');
   },
 
   // ─── Capture with Vault Bridge ──────────────
