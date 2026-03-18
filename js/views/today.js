@@ -183,12 +183,15 @@ export function today() {
           <div class="strat-section-label" style="color:var(--amber);">Due for Review (${topicsDue.length})</div>
           <div class="item-list">
             ${topicsDue.map(t => `
-              <div class="item" style="cursor:pointer;" onclick="App.markTopicReviewed('${t.id}')">
-                <div class="item-check" style="background:var(--amber); opacity:0.6;"></div>
-                <div class="item-body">
-                  <div class="item-title">${escapeHTML(t.name)}</div>
-                  <div class="item-meta">${t.category ? escapeHTML(t.category) + ' &middot; ' : ''}${t.status} &middot; last: ${t.lastStudied || 'never'}</div>
+              <div class="item" style="display:flex; align-items:center; justify-content:space-between;">
+                <div style="flex:1; display:flex; align-items:center; gap:8px; cursor:pointer;" onclick="App.markTopicReviewed('${t.id}')">
+                  <div class="item-check" style="background:var(--amber); opacity:0.6; flex-shrink:0;"></div>
+                  <div class="item-body">
+                    <div class="item-title">${escapeHTML(t.name)}</div>
+                    <div class="item-meta">${t.category ? escapeHTML(t.category) + ' &middot; ' : ''}${t.status} &middot; last: ${t.lastStudied || 'never'}</div>
+                  </div>
                 </div>
+                <button class="item-delete" onclick="App.deleteTopic('${t.id}')" title="Remove topic">&times;</button>
               </div>
             `).join('')}
           </div>

@@ -47,7 +47,7 @@ export function capture() {
         <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px;">
           <span class="tag-badge ${!activeTag ? 'tag-active' : ''}" onclick="App.captureTagFilter=''; App.render();">All</span>
           ${tagList.map(([tag, count]) => `
-            <span class="tag-badge ${activeTag === tag ? 'tag-active' : ''}" onclick="App.captureTagFilter=${JSON.stringify(tag)}; App.render();">${tag} (${count})</span>
+            <span class="tag-badge ${activeTag === tag ? 'tag-active' : ''}" onclick="App.captureTagFilter='${tag}'; App.render();">${tag} (${count})</span>
           `).join('')}
         </div>
       ` : ''}

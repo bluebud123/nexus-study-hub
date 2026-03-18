@@ -21,9 +21,10 @@ function _streakBadge(streak) {
 // ── Daily quest ───────────────────────────────────
 function _dailyQuest(data, streak) {
   const today = todayKey();
-  const habitsToday = data.habits.definitions.length;
-  const habitsLog = data.habits.log[today] || {};
-  const habitsDone = Object.keys(habitsLog).length;
+  const userSchedule = data.strategy?.schedule || [];
+  const schedLog = (data.scheduleLog || {})[today] || {};
+  const habitsDone = Object.keys(schedLog).filter(k => schedLog[k]).length;
+  const habitsToday = userSchedule.length;
   const tasksOpen = data.tasks.filter(t => !t.done).length;
   const journalToday = data.journal.some(j => j.date === today);
   const captureToday = data.captures.some(c => localDateKey(new Date(c.created || c.ts || 0)) === today);
@@ -311,14 +312,14 @@ export function dashboard() {
       <h1 class="view-title">Dashboard</h1>
       <p class="view-subtitle">${getGreeting(data.userName)}</p>
 
-      ${currentStreak > 0 ? `
+      ${data.gamificationEnabled !== false && currentStreak > 0 ? `
         <div class="streak-display">
           <span class="streak-fire">&#128293;</span>
           ${currentStreak} day streak${_streakBadge(currentStreak)} — keep it going!
         </div>
       ` : ''}
 
-      ${_dailyQuest(data, currentStreak)}
+      ${data.gamificationEnabled !== false ? _dailyQuest(data, currentStreak) : ''}
 
       <div id="dashboard-cards">${cardsHTML}</div>
     `;

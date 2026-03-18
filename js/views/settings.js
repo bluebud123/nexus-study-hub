@@ -99,6 +99,17 @@ export function settings() {
             </select>
           </div>
 
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-size:13px; font-weight:600;">Gamification</div>
+              <div style="font-size:11px; color:var(--text-dim);">Streak badges and daily quest nudges on Dashboard</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" ${data.gamificationEnabled !== false ? 'checked' : ''} onchange="App.setGamification(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
         </div>
       </div>
 

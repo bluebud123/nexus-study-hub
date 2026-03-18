@@ -3239,6 +3239,11 @@ Rules:
     this.render();
   },
 
+  setGamification(on) {
+    Store.update(d => { d.gamificationEnabled = !!on; });
+    this.render();
+  },
+
   toggleNavItem(view) {
     Store.update(d => {
       if (!d.hiddenNavItems) d.hiddenNavItems = [];
