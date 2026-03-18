@@ -1,0 +1,128 @@
+{
+  "_comment": "Sample / starter data for Nexus. Copy to nexus-data.json to use: cp nexus-data.sample.json nexus-data.json",
+  "captures": [
+    { "id": "sample_cap1", "text": "Bone healing requires periosteum integrity — important for surgical planning #lesson", "created": 1742000000000, "tags": ["#lesson"] },
+    { "id": "sample_cap2", "text": "Read paper on cement vs cementless TKA outcomes #study #idea", "created": 1741900000000, "tags": ["#study", "#idea"] },
+    { "id": "sample_cap3", "text": "Wolff's Law: bone remodels in response to mechanical load #lesson", "created": 1741800000000, "tags": ["#lesson"] },
+    { "id": "sample_cap4", "text": "Set up a spaced repetition schedule for implant biomechanics #todo", "created": 1741700000000, "tags": ["#todo"] },
+    { "id": "sample_cap5", "text": "Review complication rates for revision hip arthroplasty before exam #exam", "created": 1741600000000, "tags": ["#exam"] }
+  ],
+  "journal": [
+    { "id": "sample_j1", "text": "Good study session today — covered femoral anatomy and fixation principles. Starting to connect the biomechanics to clinical cases.", "date": "2026-03-17", "ts": 1742167200000, "mood": "good" },
+    { "id": "sample_j2", "text": "Struggled with the classification systems. Need to make a summary table for AO fracture classification. Will tackle that tomorrow.", "date": "2026-03-16", "ts": 1742080800000, "mood": "neutral" },
+    { "id": "sample_j3", "text": "Reviewed 3 clinical cases with a senior colleague. Great feedback — need to be more systematic in my approach to polytrauma.", "date": "2026-03-15", "ts": 1741994400000, "mood": "good" }
+  ],
+  "tasks": [
+    { "id": "sample_t1", "text": "Complete AO fracture classification summary table", "done": false, "tags": ["#study"], "due": "2026-03-22" },
+    { "id": "sample_t2", "text": "Review approach to periprosthetic joint infection", "done": false, "tags": ["#exam"], "due": "2026-03-25" },
+    { "id": "sample_t3", "text": "Submit logbook for February cases", "done": false, "tags": [], "due": "2026-03-20" },
+    { "id": "sample_t4", "text": "Read AAOS guidelines on DVT prophylaxis", "done": true, "doneDate": "2026-03-15", "tags": ["#study"], "due": null },
+    { "id": "sample_t5", "text": "Attend departmental teaching session", "done": true, "doneDate": "2026-03-14", "tags": [], "due": null }
+  ],
+  "habits": {
+    "definitions": [
+      { "id": "sample_h1", "name": "Morning Review", "icon": "☀", "sortKey": 0 },
+      { "id": "sample_h2", "name": "Evening Study", "icon": "📖", "sortKey": 1 },
+      { "id": "sample_h3", "name": "Exercise", "icon": "🏃", "sortKey": 2 },
+      { "id": "sample_h4", "name": "Reading", "icon": "📚", "sortKey": 3 }
+    ],
+    "log": {
+      "2026-03-17": { "sample_h1": true, "sample_h2": true, "sample_h4": true },
+      "2026-03-16": { "sample_h1": true, "sample_h2": true, "sample_h3": true, "sample_h4": true },
+      "2026-03-15": { "sample_h1": true, "sample_h3": true },
+      "2026-03-14": { "sample_h1": true, "sample_h2": true, "sample_h3": true }
+    }
+  },
+  "goals": [
+    { "id": "sample_g1", "text": "Complete 100 practice MCQs before exam", "target": 100, "current": 42, "achieved": false, "gaveUp": false },
+    { "id": "sample_g2", "text": "Log every operating session in the case book", "target": 1, "current": 1, "achieved": true, "achievedDate": "2026-03-10", "achievedReason": "Maintained logbook consistently for 3 months" }
+  ],
+  "checklists": [
+    {
+      "id": "sample_cl1",
+      "name": "Master Orthopaedic Exam",
+      "icon": "📋",
+      "color": "#6366f1",
+      "deadline": "2026-10-01",
+      "description": "Comprehensive topic checklist for the Master of Orthopaedic Surgery examination",
+      "captureTag": "#exam",
+      "projectId": null,
+      "uploadedAt": 1742000000000,
+      "sections": [
+        {
+          "name": "Basic Science",
+          "items": [
+            { "id": "sc_bs1", "text": "Bone biology and healing", "tag": null, "status": "strong", "revisions": [{ "date": "2026-03-10" }, { "date": "2026-03-17" }] },
+            { "id": "sc_bs2", "text": "Cartilage and meniscus biology", "tag": null, "status": "moderate", "revisions": [{ "date": "2026-03-12" }] },
+            { "id": "sc_bs3", "text": "Ligament and tendon healing", "tag": null, "status": "weak", "revisions": [] },
+            { "id": "sc_bs4", "text": "Biomechanics of implants and fixation", "tag": null, "status": "not-started", "revisions": [] },
+            { "id": "sc_bs5", "text": "Wolff's Law and bone remodelling", "tag": null, "status": "moderate", "revisions": [{ "date": "2026-03-15" }] },
+            { "id": "sc_bs6", "text": "Nerve healing and peripheral nerve injuries", "tag": "AI", "status": "not-started", "revisions": [] }
+          ]
+        },
+        {
+          "name": "Lower Limb",
+          "items": [
+            { "id": "sc_ll1", "text": "Total hip arthroplasty — approaches and complications", "tag": null, "status": "moderate", "revisions": [{ "date": "2026-03-11" }] },
+            { "id": "sc_ll2", "text": "Total knee arthroplasty — alignment and balance", "tag": null, "status": "weak", "revisions": [] },
+            { "id": "sc_ll3", "text": "Hip fractures — classification and management", "tag": null, "status": "strong", "revisions": [{ "date": "2026-03-08" }, { "date": "2026-03-16" }] },
+            { "id": "sc_ll4", "text": "Knee ligament injuries — ACL, PCL, multiligament", "tag": null, "status": "not-started", "revisions": [] },
+            { "id": "sc_ll5", "text": "Periprosthetic joint infection — diagnosis and management", "tag": "AI", "status": "not-started", "revisions": [] }
+          ]
+        },
+        {
+          "name": "Upper Limb",
+          "items": [
+            { "id": "sc_ul1", "text": "Shoulder instability — classification and surgical options", "tag": null, "status": "not-started", "revisions": [] },
+            { "id": "sc_ul2", "text": "Rotator cuff tears — pathology and repair", "tag": null, "status": "weak", "revisions": [] },
+            { "id": "sc_ul3", "text": "Distal radius fractures — classification and fixation", "tag": null, "status": "moderate", "revisions": [{ "date": "2026-03-14" }] },
+            { "id": "sc_ul4", "text": "Carpal tunnel syndrome — anatomy and management", "tag": null, "status": "strong", "revisions": [{ "date": "2026-03-09" }, { "date": "2026-03-17" }] }
+          ]
+        },
+        {
+          "name": "Trauma & Spine",
+          "items": [
+            { "id": "sc_tr1", "text": "AO fracture classification system", "tag": null, "status": "weak", "revisions": [] },
+            { "id": "sc_tr2", "text": "Polytrauma — damage control orthopaedics", "tag": null, "status": "not-started", "revisions": [] },
+            { "id": "sc_tr3", "text": "Spinal cord injury — ASIA classification", "tag": "AI", "status": "not-started", "revisions": [] },
+            { "id": "sc_tr4", "text": "Compartment syndrome — diagnosis and fasciotomy", "tag": null, "status": "moderate", "revisions": [{ "date": "2026-03-13" }] }
+          ]
+        }
+      ]
+    }
+  ],
+  "strategy": {
+    "milestones": {
+      "2026-03": [
+        { "id": "sample_ms1", "stream": "Exam Prep", "text": "Complete Basic Science revision pass", "priority": "high", "done": true },
+        { "id": "sample_ms2", "stream": "Exam Prep", "text": "Finish Lower Limb topic checklist", "priority": "high", "done": false },
+        { "id": "sample_ms3", "stream": "Clinical", "text": "Submit February case logbook", "priority": "medium", "done": true },
+        { "id": "sample_ms4", "stream": "Exam Prep", "text": "Complete 50 practice MCQs", "priority": "medium", "done": false }
+      ],
+      "2026-04": [
+        { "id": "sample_ms5", "stream": "Exam Prep", "text": "Complete Upper Limb revision pass", "priority": "high", "done": false },
+        { "id": "sample_ms6", "stream": "Exam Prep", "text": "Complete Trauma & Spine revision pass", "priority": "high", "done": false },
+        { "id": "sample_ms7", "stream": "Clinical", "text": "Achieve 10 supervised arthroplasty cases", "priority": "medium", "done": false }
+      ]
+    },
+    "reflections": {},
+    "allocations": {},
+    "notes": {},
+    "examDate": "2026-10-01",
+    "schedule": [
+      { "id": "sch1", "time": "06:30", "activity": "Morning Review (30 min)", "stream": "Exam Prep" },
+      { "id": "sch2", "time": "20:00", "activity": "Evening Study Block (90 min)", "stream": "Exam Prep" },
+      { "id": "sch3", "time": "07:00", "activity": "Exercise", "stream": "Wellbeing" }
+    ],
+    "projects": []
+  },
+  "streak": { "lastDate": "2026-03-17", "count": 5 },
+  "timer": { "sessions": [] },
+  "theme": "dark",
+  "taskSource": "nexus",
+  "dashboardLayout": ["strategy-banner", "stats-grid", "open-tasks", "recent-captures", "suggestions", "vault-insights", "tag-cloud"],
+  "userName": "",
+  "accentColor": "#7c6ff7",
+  "fontSize": "medium",
+  "defaultView": "dashboard"
+}

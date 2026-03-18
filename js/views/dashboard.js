@@ -88,8 +88,10 @@ export function dashboard() {
       'strategy-banner': () => {
         const s = Store.get().strategy;
         const clProjects = Store.get().checklists || [];
-        const allMs = Object.values(s.milestones).flat();
-        const doneMs = allMs.filter(m => m.done).length;
+        const curKey = curMonthKey();
+        const curMs = s.milestones[curKey] || [];
+        const curMsDone = curMs.filter(m => m.done).length;
+        const msPct = curMs.length ? Math.round(curMsDone / curMs.length * 100) : 0;
         return `
         <div class="card dash-strategy-banner">
           <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:stretch;">
@@ -120,6 +122,15 @@ export function dashboard() {
               ${scheduleItems.length ? `<div class="progress-bar" style="margin-top:4px;"><div class="progress-fill" style="width:${habitPctToday}%; background:#f472b6;"></div></div>` : ''}
             </div>
           </div>
+          ${curMs.length ? `
+          <div style="margin-top:10px; padding:8px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; display:flex; align-items:center; gap:12px; cursor:pointer;" onclick="App.navigateTo('strategy')">
+            <div style="font-size:10px; color:var(--text-dim); font-weight:700; text-transform:uppercase; white-space:nowrap;">This Month</div>
+            <div style="font-size:13px; font-weight:700; color:var(--accent); white-space:nowrap;">${curMsDone}/${curMs.length} milestones</div>
+            <div style="flex:1; height:4px; background:var(--border); border-radius:2px; min-width:40px;">
+              <div style="height:4px; width:${msPct}%; background:var(--accent); border-radius:2px; transition:width 0.3s;"></div>
+            </div>
+            <div style="font-size:11px; color:var(--text-dim); white-space:nowrap;">${msPct}%</div>
+          </div>` : ''}
         </div>`;
       },
 

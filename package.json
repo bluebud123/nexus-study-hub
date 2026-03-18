@@ -1,0 +1,56 @@
+{
+  "name": "nexus-evolution-hub",
+  "version": "1.0.0",
+  "description": "Nexus — Personal Evolution Hub. A privacy-first, local-first productivity app.",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "node server.js",
+    "electron": "electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "build": {
+    "appId": "com.nexus.evolutionhub",
+    "productName": "Nexus",
+    "copyright": "Copyright © 2026",
+    "files": [
+      "**/*",
+      "!nexus_data/",
+      "!nexus-data.json",
+      "!nexus-data.backup.json",
+      "!nexus-config.json",
+      "!backups/",
+      "!.git/",
+      "!.claude/",
+      "!node_modules/.cache/"
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "icon-192.svg"
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "icon": "icon-192.svg",
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": [{ "target": "AppImage", "arch": ["x64"] }],
+      "icon": "icon-192.svg",
+      "category": "Office"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}

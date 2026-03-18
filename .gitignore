@@ -1,7 +1,9 @@
 nexus-data.json
 nexus-data.backup.json
 nexus-config.json
+nexus_data/
 backups/
 node_modules/
+dist/
 .claude/
 app-monolith.js.bak

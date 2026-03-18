@@ -249,3 +249,16 @@ export function parseChecklistMD(text, fallbackName) {
   }
   return { id: uid(), name, projectId: null, uploadedAt: Date.now(), sections };
 }
+
+// ── Colour Palette ────────────────────────────────
+// Curated set of 24 colours: 12 muted/professional + 12 vivid/expressive
+export const COLOUR_PALETTE = [
+  // Row 1 — muted / professional
+  '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e',
+  '#f97316', '#eab308', '#22c55e', '#14b8a6',
+  '#3b82f6', '#0ea5e9', '#64748b', '#78716c',
+  // Row 2 — vivid / expressive
+  '#a855f7', '#e879f9', '#fb7185', '#fb923c',
+  '#facc15', '#4ade80', '#34d399', '#22d3ee',
+  '#60a5fa', '#818cf8', '#f472b6', '#fbbf24',
+];

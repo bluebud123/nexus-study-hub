@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════
 import {
   contrastColor, localDateKey, escapeHTML,
-  curMonthKey, monthLabel, getRoadmapMonths
+  curMonthKey, monthLabel, getRoadmapMonths, COLOUR_PALETTE
 } from '../utils.js';
 import { Store } from '../store.js';
 
@@ -377,6 +377,10 @@ export function strategy() {
             ${window.App._projAddOpen ? `
               <div style="position:absolute; top:36px; left:0; z-index:100; background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:10px; min-width:220px; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
                 <button class="btn btn-primary" style="width:100%; margin-bottom:8px;" onclick="App._projAddOpen=false; App.uploadChecklist()">⬆ Upload .md file</button>
+                <div style="display:flex; gap:6px; margin-bottom:8px;">
+                  <button class="btn btn-ghost btn-sm" style="flex:1;" onclick="App.downloadChecklistTemplate()">↓ Template</button>
+                  <button class="btn btn-ghost btn-sm" style="flex:1;" onclick="App.copyAIPrompt()">⧉ AI Prompt</button>
+                </div>
                 <div style="display:flex; gap:6px;">
                   <input type="text" id="blank-proj-name" placeholder="Project name" class="strat-settings-input" style="flex:1;">
                   <button class="btn btn-ghost btn-sm" onclick="App.addBlankProject(document.getElementById('blank-proj-name')?.value)">✎ Blank</button>
@@ -434,8 +438,13 @@ export function strategy() {
                     <div style="display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap;">
                       <input type="date" value="${activeCL.deadline||''}" class="strat-settings-input" style="font-size:11px; padding:3px 6px; width:140px;"
                         title="Deadline" onchange="App.updateChecklistMeta('${activeCL.id}', 'deadline', this.value)">
-                      <input type="color" value="${clColor}" style="width:28px; height:28px; border:none; background:none; cursor:pointer; border-radius:6px;" title="Color"
-                        onchange="App.updateChecklistMeta('${activeCL.id}', 'color', this.value)">
+                      <div class="colour-palette-row" style="display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
+                        ${COLOUR_PALETTE.map(c => `<div class="colour-swatch${c === clColor ? ' selected' : ''}" style="background:${c};" title="${c}" onclick="App.updateChecklistMeta('${activeCL.id}', 'color', '${c}')"></div>`).join('')}
+                        <label title="Custom colour" style="cursor:pointer;">
+                          <div class="colour-swatch" style="background:var(--border); display:flex; align-items:center; justify-content:center; font-size:13px; color:var(--text-dim);">+</div>
+                          <input type="color" value="${clColor}" style="position:absolute; opacity:0; width:0; height:0;" onchange="App.updateChecklistMeta('${activeCL.id}', 'color', this.value)">
+                        </label>
+                      </div>
                       ${daysLeft !== null ? `<span style="font-size:11px; color:var(--text-dim);">${daysLeft} days left</span>` : ''}
                       <span style="font-size:11px; color:var(--text-dim);">${revDone}/${allItems.length} reviewed</span>
                     </div>

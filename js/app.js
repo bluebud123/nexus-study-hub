@@ -1499,6 +1499,51 @@ export const App = {
     } catch { toast('Export failed'); }
   },
 
+  // ─── Checklist Template Download & AI Prompt ────
+  downloadChecklistTemplate() {
+    const template = `# Your Project Name
+## Section 1 — Foundations
+- First topic or task
+- Second topic or task
+- [AI] This item gets an AI badge (use for AI-generated content)
+
+## Section 2 — Core Topics
+- Another item
+- More items here
+
+## Section 3 — Review
+- Final checklist item
+- [AI] Another AI-tagged item
+`;
+    const blob = new Blob([template], { type: 'text/markdown' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'nexus-checklist-template.md';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('Template downloaded — edit it, then upload back');
+  },
+
+  copyAIPrompt() {
+    const prompt = `Generate a study checklist in this exact format:
+
+# [Project Name]
+## [Section name]
+- [item]
+- [AI] [item that was AI-generated or needs AI review]
+
+Rules:
+- Use # for the project title (one line only)
+- Use ## for each section header
+- Use - for every item
+- Prefix with [AI] for items that are AI-generated or AI-reviewed
+- Do NOT add any other markdown (no bold, no code blocks, no sub-bullets, no blank lines between items)`;
+    navigator.clipboard.writeText(prompt).then(
+      () => toast('AI prompt copied — paste into Claude or ChatGPT'),
+      () => toast('Could not copy — try a different browser')
+    );
+  },
+
   async exportNexusProject() {
     if (!confirm('This will zip the nexus_project/ folder from your vault. Files might be large. Continue?')) return;
     try {
