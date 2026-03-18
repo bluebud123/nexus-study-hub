@@ -8,6 +8,47 @@ import {
 } from '../utils.js';
 import { Store } from '../store.js';
 
+// ── Streak badge milestones ───────────────────────
+function _streakBadge(streak) {
+  if (streak >= 365) return ' 👑';
+  if (streak >= 100) return ' 💎';
+  if (streak >= 30)  return ' 🏆';
+  if (streak >= 14)  return ' ⚡';
+  if (streak >= 7)   return ' 🔥';
+  return '';
+}
+
+// ── Daily quest ───────────────────────────────────
+function _dailyQuest(data, streak) {
+  const today = todayKey();
+  const habitsToday = data.habits.definitions.length;
+  const habitsLog = data.habits.log[today] || {};
+  const habitsDone = Object.keys(habitsLog).length;
+  const tasksOpen = data.tasks.filter(t => !t.done).length;
+  const journalToday = data.journal.some(j => j.date === today);
+  const captureToday = data.captures.some(c => localDateKey(new Date(c.created || c.ts || 0)) === today);
+
+  // Pick the most actionable nudge
+  let quest = null;
+  if (!journalToday && !captureToday) {
+    quest = { icon: '✎', text: 'Log something today — a capture or journal entry keeps your streak alive.', view: 'capture', cta: 'Quick Capture' };
+  } else if (habitsToday > 0 && habitsDone < habitsToday) {
+    const left = habitsToday - habitsDone;
+    quest = { icon: '✅', text: `${habitsDone}/${habitsToday} habits done — ${left} left for today.`, view: 'today', cta: 'Mark habits' };
+  } else if (tasksOpen > 0) {
+    quest = { icon: '🎯', text: `${tasksOpen} open tasks. Pick one to close today.`, view: 'tasks', cta: 'View tasks' };
+  } else if (streak >= 6) {
+    quest = { icon: '🌟', text: `${streak}-day streak! Everything is on track — great work.`, view: null, cta: null };
+  }
+
+  if (!quest) return '';
+  return `<div class="daily-quest" onclick="${quest.view ? `App.navigateTo('${quest.view}')` : ''}">
+    <span class="daily-quest-icon">${quest.icon}</span>
+    <span class="daily-quest-text">${quest.text}</span>
+    ${quest.cta ? `<span class="daily-quest-cta">${quest.cta} →</span>` : ''}
+  </div>`;
+}
+
 export function dashboard() {
     const data = Store.get();
     const openTasks = data.tasks.filter(t => !t.done).length;
@@ -273,9 +314,11 @@ export function dashboard() {
       ${currentStreak > 0 ? `
         <div class="streak-display">
           <span class="streak-fire">&#128293;</span>
-          ${currentStreak} day streak — keep it going!
+          ${currentStreak} day streak${_streakBadge(currentStreak)} — keep it going!
         </div>
       ` : ''}
+
+      ${_dailyQuest(data, currentStreak)}
 
       <div id="dashboard-cards">${cardsHTML}</div>
     `;

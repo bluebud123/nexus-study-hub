@@ -19,6 +19,7 @@ export const App = {
   strategyTab: 'roadmap',
   strategyProject: null,
   _projAddOpen: false,
+  _clrPickerOpen: null,
   _editingItem: null,
   _editingSection: null,
   _editingProject: null,
@@ -1607,6 +1608,57 @@ Rules:
     }
     this._csvDownload(`nexus_captures_${localDateKey()}.csv`, rows);
     toast('Captures exported as CSV');
+  },
+
+  // ─── AI Settings ────────────────────────────────
+  saveAiSettings() {
+    const provider = document.getElementById('ai-provider')?.value;
+    const key = document.getElementById('ai-apikey')?.value?.trim();
+    const enabled = document.getElementById('ai-enabled')?.checked;
+    Store.update(d => {
+      d.aiProvider = provider || 'anthropic';
+      if (key) d.aiApiKey = key;
+      d.aiEnabled = !!enabled;
+    });
+    toast('AI settings saved');
+    this.render();
+  },
+
+  clearAiKey() {
+    Store.update(d => { d.aiApiKey = ''; });
+    toast('API key cleared');
+    this.render();
+  },
+
+  // ─── AI Journal Insights ─────────────────────────
+  _aiInsightLoading: false,
+  _aiInsightResult: null,
+
+  async generateJournalInsights() {
+    const data = Store.get();
+    if (!data.aiEnabled) return toast('AI is disabled — enable it in Settings → AI');
+    if (!data.aiApiKey) return toast('No API key set — add one in Settings → AI');
+    const recent = data.journal.slice(-14); // last 14 entries
+    if (recent.length < 2) return toast('Need at least 2 journal entries to generate insights');
+
+    this._aiInsightLoading = true;
+    this._aiInsightResult = null;
+    this.render();
+
+    const entries = recent.map(j => `[${j.date}] ${j.text}`).join('\n\n');
+    const system = `You are a supportive personal growth coach. Analyse the user's recent journal entries and provide a brief, warm, actionable weekly reflection. Focus on patterns, progress, and one specific suggestion. Be concise (under 150 words). Do not use bullet points — write in flowing paragraphs.`;
+    const user = `Here are my recent journal entries:\n\n${entries}\n\nWhat patterns do you notice? What is one thing I should focus on?`;
+
+    try {
+      const { AiAPI } = await import('./ai-api.js');
+      const result = await AiAPI.ask(system, user);
+      this._aiInsightResult = result;
+    } catch (err) {
+      this._aiInsightResult = `Error: ${err.message}`;
+    }
+    this._aiInsightLoading = false;
+    this.render();
+    setTimeout(() => document.getElementById('ai-insight-result')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
   },
 
   _importWizard: null, // null | { step: 1|2a|2b|3, choice: null|'backup'|'vault', preview: null, newVault: '' }

@@ -10,8 +10,17 @@ export function journal() {
     const vaultDays = window.App.vaultDailyEntries || [];
 
     return `
-      <h1 class="view-title">Journal <button class="btn btn-ghost btn-sm" onclick="App.exportJournal()" style="font-size:11px; vertical-align:middle; margin-left:8px;">⬇ Export .md</button></h1>
+      <h1 class="view-title">Journal
+        <button class="btn btn-ghost btn-sm" onclick="App.exportJournal()" style="font-size:11px; vertical-align:middle; margin-left:8px;">⬇ Export .md</button>
+        ${data.aiEnabled ? `<button class="btn btn-ghost btn-sm" onclick="App.generateJournalInsights()" style="font-size:11px; vertical-align:middle; margin-left:4px; color:var(--accent);">${window.App._aiInsightLoading ? '⏳ Thinking…' : '✨ AI Insights'}</button>` : ''}
+      </h1>
       <p class="view-subtitle">Reflect, learn, grow — one entry at a time</p>
+      ${window.App._aiInsightResult ? `
+      <div id="ai-insight-result" style="margin-bottom:16px; padding:14px 16px; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, transparent), var(--bg-card)); border:1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius:10px;">
+        <div style="font-size:11px; font-weight:700; color:var(--accent); margin-bottom:8px; text-transform:uppercase; letter-spacing:0.5px;">✨ AI Reflection</div>
+        <div style="font-size:13px; color:var(--text); line-height:1.6; white-space:pre-wrap;">${escapeHTML(window.App._aiInsightResult)}</div>
+        <button onclick="App._aiInsightResult=null; App.render();" style="margin-top:8px; background:none; border:none; cursor:pointer; font-size:11px; color:var(--text-dim);">✕ Dismiss</button>
+      </div>` : ''}
 
       <div style="margin-bottom:24px;">
         <textarea id="journal-input" placeholder="What happened today? What did you learn? (Enter to save, Ctrl+Enter for new line)" rows="4"

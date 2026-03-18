@@ -438,12 +438,16 @@ export function strategy() {
                     <div style="display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap;">
                       <input type="date" value="${activeCL.deadline||''}" class="strat-settings-input" style="font-size:11px; padding:3px 6px; width:140px;"
                         title="Deadline" onchange="App.updateChecklistMeta('${activeCL.id}', 'deadline', this.value)">
-                      <div class="colour-palette-row" style="display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
-                        ${COLOUR_PALETTE.map(c => `<div class="colour-swatch${c === clColor ? ' selected' : ''}" style="background:${c};" title="${c}" onclick="App.updateChecklistMeta('${activeCL.id}', 'color', '${c}')"></div>`).join('')}
-                        <label title="Custom colour" style="cursor:pointer;">
-                          <div class="colour-swatch" style="background:var(--border); display:flex; align-items:center; justify-content:center; font-size:13px; color:var(--text-dim);">+</div>
-                          <input type="color" value="${clColor}" style="position:absolute; opacity:0; width:0; height:0;" onchange="App.updateChecklistMeta('${activeCL.id}', 'color', this.value)">
-                        </label>
+                      <div style="position:relative;">
+                        <div class="colour-swatch" style="background:${clColor}; border-color:var(--border);" title="Change colour" onclick="App._clrPickerOpen=App._clrPickerOpen==='${activeCL.id}'?null:'${activeCL.id}'; App.render();"></div>
+                        ${window.App._clrPickerOpen === activeCL.id ? `
+                        <div style="position:absolute; top:28px; left:0; z-index:200; background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:8px; box-shadow:0 4px 20px rgba(0,0,0,0.3); display:flex; flex-wrap:wrap; gap:4px; width:172px;">
+                          ${COLOUR_PALETTE.map(c => `<div class="colour-swatch${c === clColor ? ' selected' : ''}" style="background:${c};" title="${c}" onclick="App.updateChecklistMeta('${activeCL.id}', 'color', '${c}'); App._clrPickerOpen=null;"></div>`).join('')}
+                          <label title="Custom colour" style="cursor:pointer; position:relative;">
+                            <div class="colour-swatch" style="background:var(--border); display:inline-flex; align-items:center; justify-content:center; font-size:13px; color:var(--text-dim);">+</div>
+                            <input type="color" value="${clColor}" style="position:absolute; opacity:0; width:0; height:0;" onchange="App.updateChecklistMeta('${activeCL.id}', 'color', this.value); App._clrPickerOpen=null;">
+                          </label>
+                        </div>` : ''}
                       </div>
                       ${daysLeft !== null ? `<span style="font-size:11px; color:var(--text-dim);">${daysLeft} days left</span>` : ''}
                       <span style="font-size:11px; color:var(--text-dim);">${revDone}/${allItems.length} reviewed</span>

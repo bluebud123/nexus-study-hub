@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════
 //  Nexus — Settings View
 // ═══════════════════════════════════════════════════
-import { escapeHTML } from '../utils.js';
+import { escapeHTML, COLOUR_PALETTE } from '../utils.js';
 import { Store } from '../store.js';
 
 export function settings() {
@@ -61,13 +61,16 @@ export function settings() {
             </button>
           </div>
 
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <div>
-              <div style="font-size:13px; font-weight:600;">Accent Color</div>
-              <div style="font-size:11px; color:var(--text-dim);">Primary highlight color throughout the app</div>
+          <div>
+            <div style="font-size:13px; font-weight:600; margin-bottom:4px;">Accent Color</div>
+            <div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">Primary highlight color throughout the app</div>
+            <div style="display:flex; flex-wrap:wrap; gap:5px; align-items:center;">
+              ${COLOUR_PALETTE.map(c => `<div class="colour-swatch${c === accentColor ? ' selected' : ''}" style="background:${c};" title="${c}" onclick="App.setAccentColor('${c}')"></div>`).join('')}
+              <label title="Custom colour" style="cursor:pointer; position:relative;">
+                <div class="colour-swatch" style="background:${COLOUR_PALETTE.includes(accentColor) ? 'var(--border)' : accentColor}; display:inline-flex; align-items:center; justify-content:center; font-size:13px; color:var(--text-dim);">${COLOUR_PALETTE.includes(accentColor) ? '+' : '✓'}</div>
+                <input type="color" value="${accentColor}" style="position:absolute; opacity:0; width:0; height:0;" onchange="App.setAccentColor(this.value)">
+              </label>
             </div>
-            <input type="color" value="${accentColor}" style="width:36px; height:36px; border:none; background:none; cursor:pointer; border-radius:8px;"
-              onchange="App.setAccentColor(this.value)">
           </div>
 
           <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -131,6 +134,40 @@ export function settings() {
           </select>
         </div>
         <div style="font-size:11px; color:var(--text-dim);">Use "Nexus only" if you don't have an Obsidian vault. <span style="color:var(--green);">Saved automatically.</span></div>
+      </div>
+
+      <!-- AI Settings -->
+      <div class="card">
+        <div class="strat-section-label">AI Insights</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div>
+            <div style="font-size:13px; font-weight:600;">Enable AI features</div>
+            <div style="font-size:11px; color:var(--text-dim);">Journal insights, smart suggestions. Uses your own API key — no data sent to Nexus servers.</div>
+          </div>
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--text-dim);">
+            <span>${data.aiEnabled ? 'On' : 'Off'}</span>
+            <div class="settings-toggle ${data.aiEnabled ? 'on' : ''}" id="ai-enabled-toggle" onclick="this.classList.toggle('on'); document.getElementById('ai-enabled').checked=this.classList.contains('on');"><div class="settings-toggle-knob"></div></div>
+            <input type="checkbox" id="ai-enabled" ${data.aiEnabled ? 'checked' : ''} style="display:none;">
+          </label>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div style="display:flex; gap:8px; align-items:center;">
+            <select id="ai-provider" class="strat-settings-input" style="width:140px;">
+              <option value="anthropic" ${(data.aiProvider||'anthropic')==='anthropic'?'selected':''}>Claude (Anthropic)</option>
+              <option value="openai" ${data.aiProvider==='openai'?'selected':''}>ChatGPT (OpenAI)</option>
+              <option value="gemini" ${data.aiProvider==='gemini'?'selected':''}>Gemini (Google)</option>
+            </select>
+            <input type="password" id="ai-apikey" class="strat-settings-input" placeholder="Paste API key…" style="flex:1;" value="${data.aiApiKey ? '••••••••' : ''}">
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-primary btn-sm" onclick="App.saveAiSettings()">Save</button>
+            ${data.aiApiKey ? `<button class="btn btn-ghost btn-sm" onclick="App.clearAiKey()">Clear key</button>` : ''}
+          </div>
+          <div style="font-size:11px; color:var(--text-dim);">
+            Get a free key: <strong>Anthropic</strong> — console.anthropic.com · <strong>OpenAI</strong> — platform.openai.com · <strong>Gemini</strong> — aistudio.google.com<br>
+            Your key is stored locally on this device only. Uses the smallest/cheapest model per provider.
+          </div>
+        </div>
       </div>
 
       <!-- Vault Connection -->
