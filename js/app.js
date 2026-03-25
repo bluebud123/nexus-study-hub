@@ -15,6 +15,8 @@ import { Views } from './views.js';
 export const App = {
   currentView: 'dashboard',
   taskFilter: 'all',
+  _taskSearch: '',
+  _taskCatFilter: '',
   strategyMonth: curMonthKey(),
   strategyTab: 'roadmap',
   strategyProject: null,
@@ -171,7 +173,6 @@ export const App = {
     if (data.lastWeeklyExport === currentWeek) return;
     // Only export if it's a new week (not the very first time)
     // Export the previous week's review
-    console.log(`[Nexus] Auto-exporting weekly review for ${currentWeek}`);
     const customTags = Store.get().weeklyReviewTags || ['lesson', 'people', 'food'];
     fetch('/api/vault/weekly-review/export', {
       method: 'POST',
@@ -182,7 +183,6 @@ export const App = {
       .then(res => {
         if (res.success) {
           Store.update(d => d.lastWeeklyExport = currentWeek);
-          console.log(`[Nexus] Weekly review exported to ${res.file}`);
         }
       })
       .catch(() => {});

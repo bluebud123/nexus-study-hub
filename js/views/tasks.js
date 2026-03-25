@@ -15,6 +15,16 @@ export function tasks() {
       tasks = tasks.filter(t => !t.done);
     }
 
+    // Apply text search
+    const taskSearch = (window.App._taskSearch || '').toLowerCase().trim();
+    if (taskSearch) tasks = tasks.filter(t =>
+      t.text.toLowerCase().includes(taskSearch) ||
+      (t.category || '').toLowerCase().includes(taskSearch)
+    );
+    // Apply category filter
+    const taskCatFilter = window.App._taskCatFilter || '';
+    if (taskCatFilter) tasks = tasks.filter(t => t.category === taskCatFilter);
+
     // Vault tasks
     const vt = window.App.vaultTasks;
     const vtab = window.App.vaultTaskTab || 'active';
@@ -55,6 +65,14 @@ export function tasks() {
       <h1 class="view-title">Tasks ${totalOpen > 0 ? `<span style="font-size:14px; font-weight:600; color:var(--accent); background:var(--accent)18; border-radius:12px; padding:2px 10px; vertical-align:middle;">${totalOpen} open</span>` : ''}</h1>
       <p class="view-subtitle">Track what needs to get done</p>
 
+      <div style="display:flex; gap:8px; margin-bottom:12px; align-items:center;">
+        <input type="text" id="task-search-input" placeholder="Search tasks…"
+          value="${window.App._taskSearch || ''}"
+          oninput="App._taskSearch=this.value; App.render();"
+          style="flex:1; padding:8px 12px; background:var(--surface); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px;">
+        ${window.App._taskSearch ? `<button class="btn btn-ghost btn-sm" onclick="App._taskSearch=''; App.render();">✕</button>` : ''}
+      </div>
+
       <div class="input-row">
         <input type="text" id="task-input" placeholder="Add a task..." style="flex:1;" onkeydown="if(event.key==='Enter')App.addTask()">
         <input type="text" id="task-category" placeholder="Category" style="max-width:100px;" onkeydown="if(event.key==='Enter')App.addTask()">
@@ -73,6 +91,11 @@ export function tasks() {
         <span class="filter-tab ${filter==='done'?'active':''}" onclick="App.setTaskFilter('done')">Done (${data.tasks.filter(t=>t.done).length})</span>
         ${filter === 'done' && data.tasks.filter(t=>t.done).length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.clearDoneTasks()" style="margin-left:auto; color:var(--red); font-size:11px;">Clear all done</button>` : ''}
       </div>
+      ${(() => { const allCats = [...new Set(data.tasks.map(t => t.category).filter(Boolean))]; return allCats.length ? `
+      <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px;">
+        <span class="tag-badge ${!taskCatFilter ? 'tag-active' : ''}" onclick="App._taskCatFilter=''; App.render();">All</span>
+        ${allCats.map(cat => `<span class="tag-badge ${taskCatFilter===cat ? 'tag-active' : ''}" onclick="App._taskCatFilter='${escapeHTML(cat)}'; App.render();">${escapeHTML(cat)}</span>`).join('')}
+      </div>` : ''; })()}
 
       ${tasks.length ? `
         <div class="item-list">

@@ -31,17 +31,14 @@
       "!node_modules/.cache/"
     ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
-      "icon": "icon-192.svg"
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
     },
     "mac": {
       "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
-      "icon": "icon-192.svg",
       "category": "public.app-category.productivity"
     },
     "linux": {
       "target": [{ "target": "AppImage", "arch": ["x64"] }],
-      "icon": "icon-192.svg",
       "category": "Office"
     },
     "nsis": {
