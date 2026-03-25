@@ -227,7 +227,7 @@ export function today() {
         <!-- Schedule -->
         <div class="card">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-            <div class="strat-section-label" style="margin:0;">Habits</div>
+            <div class="strat-section-label" style="margin:0;">Schedule</div>
             <div style="display:flex; align-items:center; gap:8px;">
               <span style="font-size:11px; color:var(--text-dim);">${schedDone}/${userSchedule.length}</span>
               <span class="vtask-source" onclick="App._editSchedule=!App._editSchedule; App.render();">${window.App._editSchedule ? 'Done' : 'Edit'}</span>
