@@ -31,6 +31,24 @@ if exist "%LOCALAPPDATA%\Programs\node\node.exe" (
     goto :node_found
 )
 
+:: Check nvm-windows (NVM_HOME env var or default location)
+if defined NVM_HOME (
+    for /f "delims=" %%d in ('dir /b /o-n "%NVM_HOME%" 2^>nul') do (
+        if exist "%NVM_HOME%\%%d\node.exe" (
+            set "NODE_CMD=%NVM_HOME%\%%d\node.exe"
+            goto :node_found
+        )
+    )
+)
+if exist "%APPDATA%\nvm" (
+    for /f "delims=" %%d in ('dir /b /o-n "%APPDATA%\nvm" 2^>nul') do (
+        if exist "%APPDATA%\nvm\%%d\node.exe" (
+            set "NODE_CMD=%APPDATA%\nvm\%%d\node.exe"
+            goto :node_found
+        )
+    )
+)
+
 :: Method 3: Try where as last resort
 for /f "delims=" %%i in ('where node 2^>nul') do (
     set "NODE_CMD=%%i"
@@ -62,6 +80,20 @@ if not exist "server.js" (
     exit /b 1
 )
 
+:: First-run setup: create nexus-data.json from sample if missing
+if not exist "nexus-data.json" (
+    if exist "nexus-data.sample.json" (
+        echo [First run] Creating your data file from sample...
+        copy /y "nexus-data.sample.json" "nexus-data.json" >nul
+        echo       nexus-data.json created. You're starting fresh!
+        echo.
+    ) else (
+        echo [First run] Creating empty data file...
+        echo {} > "nexus-data.json"
+        echo.
+    )
+)
+
 :: Kill any existing process on port 3456
 for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr ":3456 " ^| findstr "LISTENING"') do (
     taskkill /PID %%a /F >nul 2>nul
@@ -79,7 +111,7 @@ echo.
 :: Delay browser open so server has time to start
 start "" /b cmd /c "timeout /t 2 /nobreak >nul && start http://localhost:3456"
 
-:: Start the server â€?auto-restart on unexpected crash
+:: Start the server ï¿½?auto-restart on unexpected crash
 :restart_loop
 "%NODE_CMD%" server.js
 set EXIT_CODE=%errorlevel%
